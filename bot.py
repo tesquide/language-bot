@@ -402,7 +402,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Головна функція
 def main():
-    TOKEN = "ВАШ_ТОКЕН_ТУТ"
+    TOKEN = os.getenv("TOKEN")
     
     application = Application.builder().token(TOKEN).build()
     
