@@ -387,20 +387,28 @@ async def process_translation(update, word, context, message=None):
         translation = translate_word(word, from_lang='uk', to_lang=target_lang)
         from_word, to_word = word, translation
         from_flag, to_flag = "🇺🇦", get_flag(target_lang)
+        reverso_lang = 'uk'
     else:
         translation = translate_word(word, from_lang=target_lang, to_lang='uk')
         from_word, to_word = word, translation
         from_flag, to_flag = get_flag(target_lang), "🇺🇦"
+        reverso_lang = target_lang
     
     if translation:
         response = f"{from_flag} **{from_word}**\n{to_flag} **{to_word}**"
         
-        if len(from_word.split()) == 1 and not is_cyrillic:
-            examples = get_reverso_examples(from_word, source_lang=target_lang, target_lang='uk')
-            if examples:
-                response += "\n\n📝 **Приклади:**"
-                for i, ex in enumerate(examples, 1):
-                    response += f"\n{i}. {ex['source']}\n   → {ex['target']}\n"
+        # Додаємо приклади ТІЛЬКИ для англійських слів (не фраз)
+        if len(from_word.split()) == 1 and not is_cyrillic and target_lang == 'en':
+            try:
+                examples = get_reverso_examples(from_word, source_lang='en', target_lang='uk')
+                if examples and len(examples) > 0:
+                    response += "\n\n📝 **Приклади:**"
+                    for i, ex in enumerate(examples[:3], 1):
+                        response += f"\n{i}. {ex['source']}"
+                        response += f"\n   → {ex['target']}\n"
+            except Exception as e:
+                logger.error(f"Reverso examples failed: {e}")
+                # Продовжуємо без прикладів якщо Reverso не спрацював
         
         keyboard = [[InlineKeyboardButton("➕ Додати в словник", callback_data=f"add_to_cards:{from_word}:{to_word}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -409,6 +417,12 @@ async def process_translation(update, word, context, message=None):
             await message.reply_text(response, reply_markup=reply_markup)
         else:
             await update.callback_query.message.reply_text(response, reply_markup=reply_markup)
+    else:
+        error_msg = f"❌ Не вдалося перекласти '{word}'"
+        if message:
+            await message.reply_text(error_msg, reply_markup=get_main_menu())
+        else:
+            await update.callback_query.message.reply_text(error_msg)
 
 # Словник
 async def dictionary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,7 +431,8 @@ async def dictionary_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     keyboard = [
         [InlineKeyboardButton("📋 Мої слова", callback_data="dict_my")],
-        [InlineKeyboardButton("📚 Тематичні", callback_data="dict_thematic")]
+        [InlineKeyboardButton("📚 Тематичні", callback_data="dict_thematic")],
+        [InlineKeyboardButton("🗑 Видалити слово", callback_data="dict_delete")]
     ]
     
     await update.message.reply_text(
@@ -549,6 +564,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await settings_command(update, context)
     elif text == "❓ Допомога":
         await help_command(update, context)
+    # Видалення зі словника
+    elif context.user_data.get('dict_delete_mode'):
+        data = init_user(user_id)
+        deleted = False
+        
+        # Перевірка чи це номер
+        try:
+            num = int(text) - 1
+            if 0 <= num < len(data['cards']):
+                deleted_card = data['cards'].pop(num)
+                save_user_data(user_id, data)
+                deleted = True
+                await update.message.reply_text(
+                    f"🗑 Видалено: {deleted_card['ukrainian']} → {deleted_card['english']}",
+                    reply_markup=get_main_menu()
+                )
+        except ValueError:
+            # Це не номер, шукаємо по назві
+            for i, card in enumerate(data['cards']):
+                if text.lower() in card['ukrainian'].lower() or text.lower() in card['english'].lower():
+                    deleted_card = data['cards'].pop(i)
+                    save_user_data(user_id, data)
+                    deleted = True
+                    await update.message.reply_text(
+                        f"🗑 Видалено: {deleted_card['ukrainian']} → {deleted_card['english']}",
+                        reply_markup=get_main_menu()
+                    )
+                    break
+        
+        if not deleted:
+            await update.message.reply_text("❌ Слово не знайдено", reply_markup=get_main_menu())
+        
+        context.user_data['dict_delete_mode'] = False
+        return
     # Скремблер
     elif context.user_data.get('scramble_word'):
         data = init_user(user_id)
@@ -619,6 +668,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = "📕 **Ваші слова:**\n\n"
             for c in data['cards'][:10]:
                 msg += f"🇺🇦 {c['ukrainian']} → 🇬🇧 {c['english']}\n"
+            
+            if len(data['cards']) > 10:
+                msg += f"\n...та ще {len(data['cards']) - 10} слів"
+            
+            await query.edit_message_text(msg)
+        else:
+            await query.edit_message_text("Словник порожній")
+    
+    elif query.data == "dict_delete":
+        if data['cards']:
+            msg = "🗑 **Видалити слово**\n\nВаші слова:\n\n"
+            for i, c in enumerate(data['cards'][:15], 1):
+                msg += f"{i}. {c['english']} - {c['ukrainian']}\n"
+            
+            msg += "\n💡 Напишіть номер або назву слова для видалення"
+            context.user_data['dict_delete_mode'] = True
             await query.edit_message_text(msg)
         else:
             await query.edit_message_text("Словник порожній")
