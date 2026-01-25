@@ -257,6 +257,14 @@ TEXTS_DATABASE = {
     ]
 }
 
+# Курси
+async def courses_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🌱 Початковий курс", callback_data="course_beginner")],
+        [InlineKeyboardButton("📚 Інформація про курси", callback_data="course_info")]
+    ]
+    await update.message.reply_text("🎓 **Курси:**", reply_markup=InlineKeyboardMarkup(keyboard))
+
 # Діалог з AI
 async def dialog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -554,16 +562,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
 📖 **Інструкція:**
 
-**📖 Текст** - Читати текст
-**🔄 Перекласти** - Перекласти слово
-**📕 Словник** - Тематичні набори
-**📚 Повторити** - Повторити слова
-**🎮 Ігри** - Скремблер, вгадування
-**🎓 Курси** - Програми навчання
-**📊 Статистика** - Прогрес
-**⚙️ Налаштування** - Рівень, мова
+**📖 Текст** - Читати текст для вашого рівня
+**🔄 Перекласти** - Перекласти слово з прикладами
+**📕 Словник** - Ваші слова + тематичні набори
+**📚 Повторити** - Інтервальне повторення
+**🎮 Ігри** - Скремблер та вгадування
+**💬 Діалог AI** - Практика розмови англійською
+**🎓 Курси** - Структуровані програми
+**📊 Статистика** - Ваш прогрес
+**⚙️ Налаштування** - Рівень, мова, нагадування
 
 💡 Просто напишіть слово для перекладу!
+
+🆕 **Нова фіча:** Діалог з AI - практикуйте англійську в різних ситуаціях!
     """, reply_markup=get_main_menu())
 
 # Налаштування
@@ -803,6 +814,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dictionary_command(update, context)
     elif text == "🎮 Ігри":
         await games_menu(update, context)
+    elif text == "💬 Діалог AI":
+        await dialog_menu(update, context)
     elif text == "🎓 Курси":
         await courses_menu(update, context)
     elif text == "📊 Статистика":
@@ -811,6 +824,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await settings_command(update, context)
     elif text == "❓ Допомога":
         await help_command(update, context)
+    # Активний діалог з AI
+    elif context.user_data.get('dialog_active'):
+        await process_dialog_message(update, context, text)
+        return
     # Видалення зі словника
     elif context.user_data.get('dict_delete_mode'):
         data = init_user(user_id)
@@ -890,6 +907,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ Правильно: {correct}")
         
         save_user_data(user_id, data)
+    
+    # Діалоги
+    elif query.data.startswith("dialog_"):
+        if query.data == "dialog_end":
+            context.user_data['dialog_active'] = False
+            context.user_data['dialog_history'] = []
+            await query.edit_message_text("✅ Діалог завершено!\n\nВи чудово попрактикували англійську! 🎉")
+        else:
+            scenario = query.data.replace("dialog_", "")
+            await start_dialog(query, scenario, context)
     
     # Курси
     elif query.data == "course_beginner":
@@ -1151,6 +1178,7 @@ def main():
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("games", games_menu))
+    application.add_handler(CommandHandler("dialog", dialog_menu))
     application.add_handler(CommandHandler("courses", courses_menu))
     application.add_handler(CommandHandler("dictionary", dictionary_command))
     application.add_handler(CallbackQueryHandler(button_callback))
