@@ -735,8 +735,11 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Запуск нагадувань
-    application.create_task(send_reminders(application))
+    # Запуск нагадувань після старту бота
+    async def post_init(app: Application) -> None:
+        app.create_task(send_reminders(app))
+    
+    application.post_init = post_init
     
     print("🤖 Бот з PostgreSQL запущено!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
