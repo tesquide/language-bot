@@ -122,9 +122,9 @@ def get_main_menu():
     keyboard = [
         [KeyboardButton("📖 Текст"), KeyboardButton("🔄 Перекласти")],
         [KeyboardButton("📚 Повторити"), KeyboardButton("📕 Словник")],
-        [KeyboardButton("🎮 Ігри"), KeyboardButton("🎓 Курси")],
-        [KeyboardButton("📊 Статистика"), KeyboardButton("⚙️ Налаштування")],
-        [KeyboardButton("❓ Допомога")]
+        [KeyboardButton("🎮 Ігри"), KeyboardButton("💬 Діалог AI")],
+        [KeyboardButton("🎓 Курси"), KeyboardButton("📊 Статистика")],
+        [KeyboardButton("⚙️ Налаштування"), KeyboardButton("❓ Допомога")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -257,8 +257,199 @@ TEXTS_DATABASE = {
     ]
 }
 
-# Курси
-async def courses_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Діалог з AI
+async def dialog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🍽 В ресторані", callback_data="dialog_restaurant")],
+        [InlineKeyboardButton("🛒 В магазині", callback_data="dialog_shop")],
+        [InlineKeyboardButton("💼 Співбесіда", callback_data="dialog_interview")],
+        [InlineKeyboardButton("🏨 В готелі", callback_data="dialog_hotel")],
+        [InlineKeyboardButton("✈️ В аеропорту", callback_data="dialog_airport")],
+        [InlineKeyboardButton("💬 Вільна розмова", callback_data="dialog_free")],
+        [InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]
+    ]
+    
+    await update.message.reply_text(
+        "💬 **Діалог з AI**\n\n"
+        "Виберіть сценарій для практики англійської:\n\n"
+        "Я буду відповідати англійською і виправляти ваші помилки!",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# AI діалог (використовує Claude API)
+async def start_dialog(query, scenario, context):
+    """Розпочинає діалог з AI"""
+    
+    scenarios = {
+        'restaurant': {
+            'name': 'В ресторані',
+            'prompt': 'You are a waiter in a restaurant. Start a conversation with the customer. Keep responses short (2-3 sentences). Be friendly and helpful.',
+            'first_message': "Good evening! Welcome to our restaurant. Would you like to see the menu?"
+        },
+        'shop': {
+            'name': 'В магазині',
+            'prompt': 'You are a shop assistant. Help the customer find what they need. Keep responses short and friendly.',
+            'first_message': "Hello! How can I help you today? Are you looking for something specific?"
+        },
+        'interview': {
+            'name': 'Співбесіда',
+            'prompt': 'You are conducting a job interview. Ask professional questions but be encouraging. Keep it conversational.',
+            'first_message': "Good morning! Thank you for coming. Please tell me a bit about yourself."
+        },
+        'hotel': {
+            'name': 'В готелі',
+            'prompt': 'You are a hotel receptionist. Help the guest with check-in and questions. Be polite and professional.',
+            'first_message': "Welcome to our hotel! Do you have a reservation?"
+        },
+        'airport': {
+            'name': 'В аеропорту',
+            'prompt': 'You are an airport staff member. Help travelers with their questions. Be clear and helpful.',
+            'first_message': "Hello! How may I assist you today? Are you checking in for a flight?"
+        },
+        'free': {
+            'name': 'Вільна розмова',
+            'prompt': 'You are a friendly English conversation partner. Talk about everyday topics. Be encouraging and correct mistakes gently.',
+            'first_message': "Hi! How are you today? What would you like to talk about?"
+        }
+    }
+    
+    scenario_info = scenarios.get(scenario, scenarios['free'])
+    
+    context.user_data['dialog_active'] = True
+    context.user_data['dialog_scenario'] = scenario
+    context.user_data['dialog_prompt'] = scenario_info['prompt']
+    context.user_data['dialog_history'] = []
+    
+    await query.edit_message_text(
+        f"💬 **{scenario_info['name']}**\n\n"
+        f"AI: {scenario_info['first_message']}\n\n"
+        f"💡 Відповідайте англійською. Я виправлю помилки!"
+    )
+
+# Обробка відповіді в діалозі
+async def process_dialog_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
+    """Обробляє повідомлення користувача в діалозі"""
+    
+    user_id = str(update.effective_user.id)
+    
+    # Додаємо повідомлення в історію
+    if 'dialog_history' not in context.user_data:
+        context.user_data['dialog_history'] = []
+    
+    context.user_data['dialog_history'].append({
+        'role': 'user',
+        'content': user_message
+    })
+    
+    # Формуємо промпт для AI
+    system_prompt = context.user_data.get('dialog_prompt', 'You are a helpful English conversation partner.')
+    
+    # Обмежуємо історію до останніх 10 повідомлень
+    recent_history = context.user_data['dialog_history'][-10:]
+    
+    # Створюємо повідомлення для AI
+    conversation = f"{system_prompt}\n\nConversation history:\n"
+    for msg in recent_history:
+        role = "User" if msg['role'] == 'user' else "AI"
+        conversation += f"{role}: {msg['content']}\n"
+    
+    conversation += "\nRespond naturally in English (2-3 sentences). If the user made grammar or vocabulary mistakes, gently correct them at the end like: '✏️ Small correction: ...'"
+    
+    try:
+        # Використовуємо простий запит до Claude API
+        import requests
+        
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": os.getenv("ANTHROPIC_API_KEY", ""),
+                "anthropic-version": "2023-06-01"
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 300,
+                "messages": [
+                    {"role": "user", "content": conversation}
+                ]
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            ai_response = data['content'][0]['text']
+            
+            # Додаємо відповідь AI в історію
+            context.user_data['dialog_history'].append({
+                'role': 'assistant',
+                'content': ai_response
+            })
+            
+            keyboard = [[InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]]
+            
+            await update.message.reply_text(
+                f"💬 **AI:** {ai_response}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Якщо API не працює - використовуємо простий fallback
+            await fallback_dialog_response(update, user_message, context)
+            
+    except Exception as e:
+        logger.error(f"Dialog AI error: {e}")
+        # Fallback на випадок помилки
+        await fallback_dialog_response(update, user_message, context)
+
+# Запасна відповідь якщо API не працює
+async def fallback_dialog_response(update: Update, user_message: str, context: ContextTypes.DEFAULT_TYPE):
+    """Прості відповіді якщо AI API не доступний"""
+    
+    scenario = context.user_data.get('dialog_scenario', 'free')
+    
+    responses = {
+        'restaurant': [
+            "Great choice! Would you like something to drink with that?",
+            "Certainly! I'll bring that right away. Anything else?",
+            "Perfect! Your order will be ready in about 15 minutes."
+        ],
+        'shop': [
+            "We have that in stock! What size do you need?",
+            "Let me check for you. One moment please.",
+            "That's a popular item! Would you like to try it?"
+        ],
+        'interview': [
+            "That's interesting! Can you tell me more about your experience?",
+            "Good answer! What are your strengths?",
+            "I see. Why do you want to work here?"
+        ],
+        'hotel': [
+            "Certainly! Let me check your reservation.",
+            "Your room is ready. Here's your key card.",
+            "Is there anything else I can help you with?"
+        ],
+        'airport': [
+            "Your gate is B12. Boarding starts at 3:00 PM.",
+            "Yes, you need to go through security first.",
+            "Have a pleasant flight!"
+        ],
+        'free': [
+            "That sounds interesting! Tell me more.",
+            "I understand. How do you feel about that?",
+            "Great! What else would you like to discuss?"
+        ]
+    }
+    
+    import random
+    response = random.choice(responses.get(scenario, responses['free']))
+    
+    keyboard = [[InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]]
+    
+    await update.message.reply_text(
+        f"💬 **AI:** {response}\n\n"
+        f"💡 Keep practicing! Try using more complex sentences.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     keyboard = [
         [InlineKeyboardButton("🌱 Початковий курс", callback_data="course_beginner")],
         [InlineKeyboardButton("📚 Інформація про курси", callback_data="course_info")]
@@ -274,33 +465,64 @@ def translate_word(text, from_lang='auto', to_lang='uk'):
         logger.error(f"Translation error: {e}")
         return None
 
-# Reverso приклади
+# Reverso приклади (ПОКРАЩЕНА ВЕРСІЯ)
 def get_reverso_examples(word, source_lang='en', target_lang='uk'):
     try:
         import requests
         from bs4 import BeautifulSoup
         
+        # Reverso Context URL
         url = f"https://context.reverso.net/translation/{source_lang}-{target_lang}/{word}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=5)
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://context.reverso.net/'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code != 200:
+            logger.warning(f"Reverso returned status {response.status_code}")
             return []
         
         soup = BeautifulSoup(response.content, 'html.parser')
         examples = []
         
-        for div in soup.find_all('div', class_='example')[:3]:
-            source = div.find('div', class_='src')
-            target = div.find('div', class_='trg')
-            
-            if source and target:
-                examples.append({
-                    'source': ' '.join(source.get_text(strip=True).split()),
-                    'target': ' '.join(target.get_text(strip=True).split())
-                })
+        # Шукаємо приклади (Reverso може мати різну структуру)
+        example_divs = soup.find_all('div', class_='example')
+        
+        if not example_divs:
+            # Пробуємо альтернативний селектор
+            example_divs = soup.select('.ltr .example')
+        
+        logger.info(f"Found {len(example_divs)} examples for word '{word}'")
+        
+        for div in example_divs[:3]:
+            try:
+                source = div.find('div', class_='src')
+                target = div.find('div', class_='trg')
+                
+                if source and target:
+                    source_text = source.get_text(strip=True)
+                    target_text = target.get_text(strip=True)
+                    
+                    # Очищаємо від зайвих символів
+                    source_text = ' '.join(source_text.split())
+                    target_text = ' '.join(target_text.split())
+                    
+                    if source_text and target_text:
+                        examples.append({
+                            'source': source_text,
+                            'target': target_text
+                        })
+            except Exception as e:
+                logger.error(f"Error parsing example: {e}")
+                continue
         
         return examples
+    
     except Exception as e:
         logger.error(f"Reverso error: {e}")
         return []
@@ -397,18 +619,43 @@ async def process_translation(update, word, context, message=None):
     if translation:
         response = f"{from_flag} **{from_word}**\n{to_flag} **{to_word}**"
         
-        # Додаємо приклади ТІЛЬКИ для англійських слів (не фраз)
+        # Додаємо приклади для англійських окремих слів
         if len(from_word.split()) == 1 and not is_cyrillic and target_lang == 'en':
-            try:
-                examples = get_reverso_examples(from_word, source_lang='en', target_lang='uk')
-                if examples and len(examples) > 0:
-                    response += "\n\n📝 **Приклади:**"
-                    for i, ex in enumerate(examples[:3], 1):
-                        response += f"\n{i}. {ex['source']}"
-                        response += f"\n   → {ex['target']}\n"
-            except Exception as e:
-                logger.error(f"Reverso examples failed: {e}")
-                # Продовжуємо без прикладів якщо Reverso не спрацював
+            examples = get_reverso_examples(from_word, source_lang='en', target_lang='uk')
+            
+            # Якщо Reverso не дав прикладів - використовуємо базові
+            if not examples or len(examples) == 0:
+                # Базові приклади для поширених слів
+                basic_examples = {
+                    'book': [
+                        {'source': 'I read this book last week', 'target': 'Я читав цю книгу минулого тижня'},
+                        {'source': 'She loves reading books', 'target': 'Вона любить читати книги'}
+                    ],
+                    'hello': [
+                        {'source': 'Hello, how are you?', 'target': 'Привіт, як справи?'},
+                        {'source': 'He said hello to everyone', 'target': 'Він привітав усіх'}
+                    ],
+                    'work': [
+                        {'source': 'I work from home', 'target': 'Я працюю з дому'},
+                        {'source': 'She works hard every day', 'target': 'Вона важко працює щодня'}
+                    ],
+                    'learn': [
+                        {'source': 'I want to learn English', 'target': 'Я хочу вивчити англійську'},
+                        {'source': 'Learning languages is fun', 'target': 'Вивчення мов це весело'}
+                    ],
+                    'love': [
+                        {'source': 'I love my family', 'target': 'Я люблю свою сім\'ю'},
+                        {'source': 'She loves traveling', 'target': 'Вона любить подорожувати'}
+                    ]
+                }
+                
+                examples = basic_examples.get(from_word.lower(), [])
+            
+            if examples and len(examples) > 0:
+                response += "\n\n📝 **Приклади:**"
+                for i, ex in enumerate(examples[:3], 1):
+                    response += f"\n{i}. {ex['source']}"
+                    response += f"\n   → {ex['target']}\n"
         
         keyboard = [[InlineKeyboardButton("➕ Додати в словник", callback_data=f"add_to_cards:{from_word}:{to_word}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
