@@ -128,7 +128,7 @@ def get_main_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# Тематичні словники
+# Тематичні словники (РОЗШИРЕНІ)
 THEMATIC_VOCABULARIES = {
     '✈️ Подорожі': {
         'airport': 'аеропорт', 'flight': 'рейс', 'ticket': 'квиток', 'passport': 'паспорт',
@@ -138,7 +138,8 @@ THEMATIC_VOCABULARIES = {
         'beach': 'пляж', 'mountain': 'гора', 'city': 'місто', 'museum': 'музей',
         'restaurant': 'ресторан', 'taxi': 'таксі', 'train': 'поїзд', 'bus': 'автобус',
         'station': 'станція', 'arrival': 'прибуття', 'departure': 'відправлення', 'delay': 'затримка',
-        'customs': 'митниця', 'visa': 'віза'
+        'customs': 'митниця', 'visa': 'віза', 'border': 'кордон', 'backpack': 'рюкзак',
+        'cruise': 'круїз', 'island': 'острів', 'sunset': 'захід сонця', 'harbor': 'гавань'
     },
     '🍔 Їжа': {
         'breakfast': 'сніданок', 'lunch': 'обід', 'dinner': 'вечеря', 'snack': 'перекус',
@@ -146,38 +147,123 @@ THEMATIC_VOCABULARIES = {
         'bread': 'хліб', 'cheese': 'сир', 'milk': 'молоко', 'water': 'вода',
         'juice': 'сік', 'coffee': 'кава', 'tea': 'чай', 'sugar': 'цукор',
         'salt': 'сіль', 'pepper': 'перець', 'recipe': 'рецепт', 'dish': 'страва',
-        'menu': 'меню', 'waiter': 'офіціант', 'bill': 'рахунок', 'delicious': 'смачний'
+        'menu': 'меню', 'waiter': 'офіціант', 'bill': 'рахунок', 'delicious': 'смачний',
+        'soup': 'суп', 'salad': 'салат', 'dessert': 'десерт', 'appetizer': 'закуска',
+        'sauce': 'соус', 'spicy': 'гострий', 'sweet': 'солодкий', 'bitter': 'гіркий',
+        'chicken': 'курка', 'beef': 'яловичина', 'pork': 'свинина', 'potato': 'картопля'
     },
     '💼 Бізнес': {
         'job': 'робота', 'career': 'кар\'єра', 'office': 'офіс', 'manager': 'менеджер',
         'employee': 'працівник', 'salary': 'зарплата', 'contract': 'контракт', 'meeting': 'зустріч',
         'project': 'проект', 'deadline': 'дедлайн', 'team': 'команда', 'colleague': 'колега',
-        'boss': 'бос', 'client': 'клієнт', 'profit': 'прибуток', 'budget': 'бюджет'
+        'boss': 'бос', 'client': 'клієнт', 'profit': 'прибуток', 'budget': 'бюджет',
+        'invoice': 'рахунок-фактура', 'deal': 'угода', 'agreement': 'домовленість', 'presentation': 'презентація',
+        'report': 'звіт', 'marketing': 'маркетинг', 'sales': 'продажі', 'revenue': 'дохід',
+        'startup': 'стартап', 'investor': 'інвестор', 'partnership': 'партнерство', 'strategy': 'стратегія',
+        'goal': 'ціль', 'success': 'успіх', 'failure': 'невдача', 'growth': 'зростання'
+    },
+    '🏥 Здоров\'я': {
+        'doctor': 'лікар', 'hospital': 'лікарня', 'medicine': 'ліки', 'pain': 'біль',
+        'headache': 'головний біль', 'fever': 'температура', 'cold': 'застуда', 'cough': 'кашель',
+        'flu': 'грип', 'prescription': 'рецепт', 'pharmacy': 'аптека', 'treatment': 'лікування',
+        'diagnosis': 'діагноз', 'symptom': 'симптом', 'exercise': 'вправа', 'diet': 'дієта',
+        'vitamin': 'вітамін', 'injury': 'травма', 'surgery': 'операція', 'recovery': 'одужання',
+        'patient': 'пацієнт', 'nurse': 'медсестра', 'clinic': 'клініка', 'emergency': 'екстрений випадок',
+        'appointment': 'прийом', 'vaccine': 'вакцина', 'allergy': 'алергія', 'infection': 'інфекція',
+        'bandage': 'бинт', 'pill': 'таблетка', 'healthy': 'здоровий', 'sick': 'хворий'
+    },
+    '🎓 Освіта': {
+        'school': 'школа', 'university': 'університет', 'student': 'студент', 'teacher': 'вчитель',
+        'lesson': 'урок', 'homework': 'домашнє завдання', 'exam': 'іспит', 'test': 'тест',
+        'grade': 'оцінка', 'knowledge': 'знання', 'study': 'вивчати', 'learn': 'вчити',
+        'book': 'книга', 'notebook': 'зошит', 'pen': 'ручка', 'pencil': 'олівець',
+        'library': 'бібліотека', 'course': 'курс', 'subject': 'предмет', 'classroom': 'клас',
+        'professor': 'професор', 'lecture': 'лекція', 'diploma': 'диплом', 'scholarship': 'стипендія',
+        'assignment': 'завдання', 'research': 'дослідження', 'thesis': 'дисертація', 'campus': 'кампус',
+        'semester': 'семестр', 'certificate': 'сертифікат', 'tuition': 'плата за навчання', 'major': 'спеціальність'
+    },
+    '💻 Технології': {
+        'computer': 'комп\'ютер', 'internet': 'інтернет', 'website': 'вебсайт', 'email': 'електронна пошта',
+        'password': 'пароль', 'software': 'програмне забезпечення', 'application': 'додаток', 'download': 'завантажити',
+        'upload': 'вивантажити', 'file': 'файл', 'folder': 'папка', 'data': 'дані',
+        'smartphone': 'смартфон', 'tablet': 'планшет', 'screen': 'екран', 'keyboard': 'клавіатура',
+        'mouse': 'миша', 'printer': 'принтер', 'wifi': 'вайфай', 'network': 'мережа',
+        'browser': 'браузер', 'search': 'пошук', 'cloud': 'хмара', 'backup': 'резервна копія',
+        'update': 'оновлення', 'virus': 'вірус', 'security': 'безпека', 'coding': 'програмування',
+        'algorithm': 'алгоритм', 'database': 'база даних', 'server': 'сервер', 'digital': 'цифровий'
+    },
+    '🏠 Дім': {
+        'house': 'будинок', 'room': 'кімната', 'kitchen': 'кухня', 'bathroom': 'ванна',
+        'bedroom': 'спальня', 'living room': 'вітальня', 'furniture': 'меблі', 'table': 'стіл',
+        'chair': 'стілець', 'bed': 'ліжко', 'sofa': 'диван', 'window': 'вікно',
+        'door': 'двері', 'floor': 'підлога', 'ceiling': 'стеля', 'wall': 'стіна',
+        'lamp': 'лампа', 'curtain': 'штора', 'carpet': 'килим', 'mirror': 'дзеркало',
+        'closet': 'шафа', 'drawer': 'ящик', 'shelf': 'полиця', 'pillow': 'подушка',
+        'blanket': 'ковдра', 'towel': 'рушник', 'shower': 'душ', 'sink': 'раковина',
+        'stove': 'плита', 'refrigerator': 'холодильник', 'garden': 'сад', 'garage': 'гараж'
+    },
+    '👔 Одяг': {
+        'clothes': 'одяг', 'shirt': 'сорочка', 'pants': 'штани', 'dress': 'сукня',
+        'skirt': 'спідниця', 'jacket': 'куртка', 'coat': 'пальто', 'shoes': 'взуття',
+        'boots': 'чоботи', 'sneakers': 'кросівки', 'hat': 'капелюх', 'cap': 'кепка',
+        'scarf': 'шарф', 'gloves': 'рукавички', 'socks': 'шкарпетки', 'belt': 'пояс',
+        'tie': 'краватка', 'sweater': 'светр', 'jeans': 'джинси', 't-shirt': 'футболка',
+        'suit': 'костюм', 'blouse': 'блузка', 'underwear': 'білизна', 'pajamas': 'піжама',
+        'uniform': 'уніформа', 'hoodie': 'худі', 'vest': 'жилет', 'shorts': 'шорти',
+        'sandals': 'сандалі', 'slippers': 'тапочки', 'raincoat': 'дощовик', 'swimsuit': 'купальник'
     }
 }
 
-# База текстів (скорочена версія)
+# База текстів (РОЗШИРЕНА)
 TEXTS_DATABASE = {
     'A1': [
-        {"topic": "Daily routine", "text": "I wake up at 7 AM every day. I brush my teeth and wash my face. Then I eat breakfast with my family. I like to eat bread with jam and drink tea."},
-        {"topic": "My family", "text": "I have a small family. There are four people: my mom, my dad, my sister, and me. My mom is a teacher. My dad is a doctor."}
+        {"topic": "Daily routine", "text": "I wake up at 7 AM every day. I brush my teeth and wash my face. Then I eat breakfast with my family. I like to eat bread with jam and drink tea. After breakfast, I go to school."},
+        {"topic": "My family", "text": "I have a small family. There are four people: my mom, my dad, my sister, and me. My mom is a teacher. My dad is a doctor. My sister is five years old. We love each other."},
+        {"topic": "My pet", "text": "I have a cat. Her name is Lucy. She is white and very soft. Lucy likes to play with a ball. She sleeps on my bed. I feed her every morning and evening."},
+        {"topic": "My room", "text": "My room is small but cozy. I have a bed, a desk, and a chair. On my desk, I have books and pencils. I have a lamp too. My room has one window."},
+        {"topic": "Weekend", "text": "On Saturday and Sunday, I don't go to school. I wake up late. I play with my friends in the park. We ride bikes and play football. I like weekends very much."},
+        {"topic": "School", "text": "I go to school every day. My school is big. I have many friends there. We study math, English, and science. My favorite subject is English. I like my teacher."},
+        {"topic": "Food", "text": "I like pizza and ice cream. For breakfast, I eat cereal and milk. For lunch, I have a sandwich. For dinner, my mom cooks soup and chicken. I drink juice every day."},
+        {"topic": "Colors", "text": "My favorite color is blue. The sky is blue. The ocean is blue too. I also like red and green. Red is the color of apples. Green is the color of grass and trees."},
+        {"topic": "Weather", "text": "Today is sunny. The sun is shining. I like sunny days. Sometimes it rains. When it rains, I stay home. In winter, it snows. I like to make snowmen."},
+        {"topic": "My friend", "text": "My best friend is Tom. He is ten years old like me. We go to the same school. Tom likes football. We play together every day after school. He is very funny."},
+    ],
+    'A2': [
+        {"topic": "Travel", "text": "Last summer, my family went to the beach. We stayed in a hotel near the ocean. Every day we swam in the sea and played on the sand. The weather was perfect. In the evening, we ate fresh fish at restaurants. I collected many beautiful shells. It was the best vacation ever. I want to go back next year."},
+        {"topic": "Hobby", "text": "I love reading books. Every week, I go to the library and borrow new books. My favorite books are adventure stories. Reading helps me learn new words and understand different cultures. Sometimes I read before bed. My parents are happy that I like reading. They buy me books for my birthday."},
+        {"topic": "Shopping", "text": "Yesterday, I went shopping with my mother. We went to the supermarket to buy food for the week. We bought vegetables, fruits, meat, and bread. My mother also bought milk and eggs. I chose some cookies for myself. At the checkout, we paid with a credit card. Shopping took us two hours."},
+        {"topic": "Technology", "text": "I use my smartphone every day. I send messages to my friends and watch videos online. Sometimes I play games on my phone. My parents say I should not use it too much. They allow me to use it for one hour after homework. I also use my computer for school projects."},
+        {"topic": "Health", "text": "It is important to stay healthy. I try to eat fruits and vegetables every day. I also drink a lot of water. Three times a week, I play sports with my friends. I go to bed early to get enough sleep. When I feel sick, I visit the doctor. Being healthy makes me happy."},
+        {"topic": "Learning English", "text": "I have been learning English for two years. At first, it was difficult to remember new words. But now I can understand simple conversations. I practice English by watching movies with subtitles. My teacher is very patient and helpful. I want to speak English fluently one day."},
+        {"topic": "City life", "text": "I live in a big city. There are many tall buildings and busy streets. Every day I see lots of cars and buses. My city has beautiful parks where people walk and relax. There are also many shops and restaurants. Sometimes the city is noisy, but I like living here because there are many things to do."},
+        {"topic": "Birthday party", "text": "Last week was my birthday. My parents organized a party for me. They invited all my friends. We played games and ate cake. My friends gave me many presents. I got books, toys, and clothes. We had pizza and juice. It was a wonderful day. I thanked everyone for coming."},
+        {"topic": "Future plans", "text": "When I finish school, I want to go to university. I plan to study medicine because I want to be a doctor. Doctors help sick people and save lives. I know it will be difficult, but I will work hard. My parents support my dream. I hope to achieve my goal."},
+        {"topic": "Environment", "text": "We should protect our environment. I try to recycle paper and plastic. I don't throw trash on the street. I use a reusable water bottle instead of buying plastic bottles. Saving water and electricity is important too. If everyone helps a little, we can make the Earth cleaner and healthier."},
     ],
     'B1': [
-        {"topic": "Climate change", "text": "Climate change is one of the most pressing issues facing our planet today. Scientists warn that rising temperatures are causing polar ice caps to melt."}
+        {"topic": "Climate change", "text": "Climate change is one of the most pressing issues facing our planet today. Scientists warn that rising temperatures are causing polar ice caps to melt, leading to rising sea levels. Extreme weather events like hurricanes and droughts are becoming more frequent. Many countries are trying to reduce carbon emissions by using renewable energy sources such as solar and wind power. Individuals can also help by using public transportation, reducing plastic consumption, and recycling. While progress has been made, much more needs to be done to protect our environment for future generations."},
+        {"topic": "Social media", "text": "Social media has changed the way we communicate and share information. Platforms like Facebook and Instagram allow us to stay connected with friends and family around the world. However, spending too much time on social media can have negative effects. It can lead to anxiety, sleep problems, and reduced face-to-face interaction. Many people compare their lives to others online, which can cause unhappiness. It's important to use social media responsibly and take regular breaks. Finding a balance between online and offline life is essential for our mental health."},
+        {"topic": "Remote work", "text": "Working from home has become increasingly popular, especially after the pandemic. Many people appreciate the flexibility and time saved from not commuting. Remote work allows for a better work-life balance. However, it also has challenges. Some people feel isolated and miss the social interaction of an office. It can be difficult to separate work from personal life when both happen in the same space. Companies are now looking for ways to support remote workers better, including providing equipment and encouraging regular breaks."},
+        {"topic": "Healthy lifestyle", "text": "Maintaining a healthy lifestyle requires effort and dedication. Regular exercise is crucial - experts recommend at least 30 minutes of physical activity five days a week. Eating a balanced diet with plenty of fruits and vegetables provides essential nutrients. Getting seven to eight hours of sleep each night helps the body recover and function properly. Managing stress through meditation or hobbies is equally important. Avoiding smoking and limiting alcohol consumption also contribute to better health. Small changes in daily habits can lead to significant improvements over time."},
+        {"topic": "Online shopping", "text": "Online shopping has revolutionized the way we buy products. With just a few clicks, we can order almost anything and have it delivered to our door. This convenience saves time and often money, as online stores frequently offer discounts. However, there are disadvantages too. We cannot physically examine products before buying, and returning items can be complicated. There are also concerns about data security and online fraud. Despite these issues, e-commerce continues to grow rapidly, and traditional stores are adapting by creating their own online platforms."},
+    ],
+    'B2': [
+        {"topic": "Artificial intelligence", "text": "Artificial intelligence is rapidly transforming various aspects of our lives. From virtual assistants on our smartphones to complex algorithms that drive autonomous vehicles, AI is becoming increasingly integrated into modern society. In healthcare, AI systems can analyze medical images and help doctors diagnose diseases more accurately. In finance, algorithms detect fraudulent transactions and make investment decisions. However, this technological advancement raises important ethical questions. There are concerns about job displacement as automation replaces human workers. Privacy issues arise when AI systems collect and analyze personal data. Bias in AI algorithms can perpetuate existing societal prejudices. As we develop more sophisticated AI systems, we must carefully consider their implications and establish appropriate regulations to ensure they benefit humanity as a whole."},
+        {"topic": "Education reform", "text": "The traditional education system is facing significant challenges in the 21st century. Many educators argue that schools focus too heavily on standardized testing rather than fostering critical thinking and creativity. The rapid pace of technological change means that students need to develop adaptable skills rather than just memorizing facts. Some schools are experimenting with project-based learning, where students work on real-world problems and develop practical solutions. There's also growing interest in personalized learning approaches that cater to individual student needs and learning styles. However, implementing these changes is difficult. Teachers need training and support to adopt new methods. Not all schools have access to necessary technology and resources. Despite these obstacles, there's widespread agreement that education must evolve to prepare students for an uncertain future where the jobs they'll have may not even exist yet."},
+        {"topic": "Globalization", "text": "Globalization has fundamentally altered how businesses operate and how cultures interact. International trade has created unprecedented economic opportunities, allowing companies to source materials globally and reach customers worldwide. This has lifted millions out of poverty, particularly in developing countries. However, globalization also has its critics. Local industries struggle to compete with multinational corporations. Cultural homogenization threatens to erode unique traditions and languages. Environmental degradation has accelerated as companies seek the cheapest production methods regardless of ecological cost. The COVID-19 pandemic highlighted vulnerabilities in global supply chains, prompting discussions about the need for more localized production. As we move forward, the challenge is finding a balance between the benefits of global cooperation and the need to preserve local communities and protect the environment."},
+    ],
+    'C1': [
+        {"topic": "Philosophy", "text": "The philosophical debate surrounding free will versus determinism has captivated thinkers for centuries. On one hand, our subjective experience suggests that we make genuine choices and bear moral responsibility for our actions. We deliberate, weigh options, and ultimately decide based on our values and reasoning. On the other hand, advances in neuroscience reveal that many of our decisions may be predetermined by factors beyond our conscious control, including genetics, upbringing, and environmental influences. Brain imaging studies show that neural activity precedes conscious awareness of decisions, suggesting that our sense of choice might be an illusion. This paradox has profound implications not only for how we understand human behavior but also for our legal and ethical frameworks. If our actions are determined, can we truly be held responsible for them? Some contemporary philosophers argue for compatibilism, suggesting that free will and determinism need not be mutually exclusive concepts. They propose that freedom consists not in being undetermined, but in acting in accordance with one's own desires and rational deliberation, even if those desires themselves are causally determined. This nuanced view attempts to preserve moral responsibility while acknowledging the causal nature of the universe."},
     ]
 }
 
 # Курси
-COURSES = {
-    'beginner': {
-        'name': '🌱 Початковий (A1→A2)',
-        'duration': '3 місяці',
-        'lessons': [
-            {'title': 'Урок 1: Знайомство', 'words': 20, 'texts': 3},
-            {'title': 'Урок 2: Сім\'я', 'words': 20, 'texts': 3}
-        ]
-    }
-}
+async def courses_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🌱 Початковий курс", callback_data="course_beginner")],
+        [InlineKeyboardButton("📚 Інформація про курси", callback_data="course_info")]
+    ]
+    await update.message.reply_text("🎓 **Курси:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # Переклад
 def translate_word(text, from_lang='auto', to_lang='uk'):
@@ -455,6 +541,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await dictionary_command(update, context)
     elif text == "🎮 Ігри":
         await games_menu(update, context)
+    elif text == "🎓 Курси":
+        await courses_menu(update, context)
     elif text == "📊 Статистика":
         await stats(update, context)
     elif text == "⚙️ Налаштування":
@@ -469,9 +557,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data['game_stats']['correct'] += 1
             save_user_data(user_id, data)
             context.user_data.clear()
-            await update.message.reply_text("🎉 Правильно!")
+            
+            keyboard = [[InlineKeyboardButton("🔄 Грати ще", callback_data="game_scramble")]]
+            await update.message.reply_text("🎉 Правильно!", reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-            await update.message.reply_text("❌ Спробуйте ще")
+            await update.message.reply_text("❌ Спробуйте ще раз")
     # Переклад
     elif context.user_data.get('waiting_for_translation'):
         context.user_data['waiting_for_translation'] = False
@@ -504,6 +594,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ Правильно: {correct}")
         
         save_user_data(user_id, data)
+    
+    # Курси
+    elif query.data == "course_beginner":
+        await query.edit_message_text(
+            "🌱 **Початковий курс**\n\n"
+            "Цей курс допоможе вам вивчити базову англійську.\n\n"
+            "📚 10 уроків\n⏱ 3 місяці\n📝 225 слів\n\n"
+            "Почніть з основ і поступово прогресуйте!"
+        )
+    elif query.data == "course_info":
+        await query.edit_message_text(
+            "📚 **Інформація про курси**\n\n"
+            "Наші курси структуровані для послідовного навчання.\n\n"
+            "🌱 Початковий (A1→A2)\n"
+            "📘 Середній (B1→B2)\n"
+            "🎓 Просунутий (C1)\n\n"
+            "Кожен курс містить тексти, слова та вправи."
+        )
     
     # Словник
     elif query.data == "dict_my":
@@ -731,6 +839,7 @@ def main():
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("games", games_menu))
+    application.add_handler(CommandHandler("courses", courses_menu))
     application.add_handler(CommandHandler("dictionary", dictionary_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
