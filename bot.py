@@ -122,9 +122,10 @@ def get_main_menu():
     keyboard = [
         [KeyboardButton("📖 Текст"), KeyboardButton("🔄 Перекласти")],
         [KeyboardButton("📚 Повторити"), KeyboardButton("📕 Словник")],
-        [KeyboardButton("🎮 Ігри"), KeyboardButton("💬 Діалог AI")],
-        [KeyboardButton("🎓 Курси"), KeyboardButton("📊 Статистика")],
-        [KeyboardButton("⚙️ Налаштування"), KeyboardButton("❓ Допомога")]
+        [KeyboardButton("➕ Додати слово"), KeyboardButton("🎮 Ігри")],
+        [KeyboardButton("💬 Діалог AI"), KeyboardButton("🎓 Курси")],
+        [KeyboardButton("📊 Статистика"), KeyboardButton("⚙️ Налаштування")],
+        [KeyboardButton("❓ Допомога")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -458,11 +459,91 @@ async def fallback_dialog_response(update: Update, user_message: str, context: C
         f"💡 Keep practicing! Try using more complex sentences.",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    keyboard = [
-        [InlineKeyboardButton("🌱 Початковий курс", callback_data="course_beginner")],
-        [InlineKeyboardButton("📚 Інформація про курси", callback_data="course_info")]
-    ]
-    await update.message.reply_text("🎓 **Курси:**", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Додавання свого слова
+async def add_custom_word_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Початок процесу додавання свого слова"""
+    context.user_data['adding_custom_word'] = True
+    context.user_data['custom_word_step'] = 'ukrainian'
+    
+    await update.message.reply_text(
+        "➕ **Додати своє слово**\n\n"
+        "Крок 1/2: Напишіть слово українською:\n\n"
+        "💡 Наприклад: собака",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+    )
+
+async def process_custom_word(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Обробка додавання свого слова"""
+    user_id = str(update.effective_user.id)
+    data = init_user(user_id)
+    
+    if text == "❌ Скасувати":
+        context.user_data['adding_custom_word'] = False
+        context.user_data['custom_word_step'] = None
+        context.user_data.pop('custom_word_ukrainian', None)
+        await update.message.reply_text("❌ Скасовано", reply_markup=get_main_menu())
+        return
+    
+    step = context.user_data.get('custom_word_step')
+    
+    if step == 'ukrainian':
+        # Зберігаємо українське слово
+        context.user_data['custom_word_ukrainian'] = text.strip()
+        context.user_data['custom_word_step'] = 'english'
+        
+        await update.message.reply_text(
+            f"✅ Українське слово: **{text}**\n\n"
+            f"Крок 2/2: Тепер напишіть переклад англійською:\n\n"
+            f"💡 Наприклад: dog",
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+        )
+    
+    elif step == 'english':
+        # Зберігаємо англійське слово
+        ukrainian_word = context.user_data.get('custom_word_ukrainian', '')
+        english_word = text.strip()
+        
+        # Перевіряємо чи слово вже є
+        if any(c['english'].lower() == english_word.lower() for c in data['cards']):
+            await update.message.reply_text(
+                "⚠️ Це слово вже є у вашому словнику!\n\nСпробуйте інше слово:",
+                reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+            )
+            return
+        
+        # Додаємо слово
+        data['cards'].append({
+            'ukrainian': ukrainian_word,
+            'english': english_word,
+            'added_date': datetime.now().isoformat(),
+            'next_review': datetime.now().isoformat(),
+            'interval': 1
+        })
+        
+        save_user_data(user_id, data)
+        
+        # Скидаємо стан
+        context.user_data['adding_custom_word'] = False
+        context.user_data['custom_word_step'] = None
+        context.user_data.pop('custom_word_ukrainian', None)
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Додати ще слово", callback_data="add_another_word")],
+            [InlineKeyboardButton("📕 Переглянути словник", callback_data="dict_my")]
+        ]
+        
+        await update.message.reply_text(
+            f"✅ **Слово додано!**\n\n"
+            f"🇺🇦 {ukrainian_word}\n"
+            f"🇬🇧 {english_word}\n\n"
+            f"📊 Всього слів у словнику: {len(data['cards'])}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        # Повертаємо головне меню через 1 секунду
+        await asyncio.sleep(1)
+        await update.message.reply_text("Головне меню:", reply_markup=get_main_menu())
 
 # Переклад
 def translate_word(text, from_lang='auto', to_lang='uk'):
@@ -549,6 +630,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📖 **Тексти** - унікальні тексти для читання
 🔄 **Переклад** - з реальними прикладами
+➕ **Додати слово** - створіть свій словник
 📕 **Словник** - тематичні набори слів
 📚 **Повторення** - інтервальна система
 🎮 **Ігри** - скремблер та вгадування
@@ -564,6 +646,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **📖 Текст** - Читати текст для вашого рівня
 **🔄 Перекласти** - Перекласти слово з прикладами
+**➕ Додати слово** - Додати своє слово зі своїм перекладом
 **📕 Словник** - Ваші слова + тематичні набори
 **📚 Повторити** - Інтервальне повторення
 **🎮 Ігри** - Скремблер та вгадування
@@ -574,7 +657,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 💡 Просто напишіть слово для перекладу!
 
-🆕 **Нова фіча:** Діалог з AI - практикуйте англійську в різних ситуаціях!
+🆕 **Нова фіча:** Додайте свої власні слова до словника!
     """, reply_markup=get_main_menu())
 
 # Налаштування
@@ -808,6 +891,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await text_command(update, context)
     elif text == "🔄 Перекласти":
         await translate_command(update, context)
+    elif text == "➕ Додати слово":
+        await add_custom_word_start(update, context)
     elif text == "📚 Повторити":
         await review(update, context)
     elif text == "📕 Словник":
@@ -824,6 +909,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await settings_command(update, context)
     elif text == "❓ Допомога":
         await help_command(update, context)
+    # Додавання свого слова
+    elif context.user_data.get('adding_custom_word'):
+        await process_custom_word(update, context, text)
+        return
     # Активний діалог з AI
     elif context.user_data.get('dialog_active'):
         await process_dialog_message(update, context, text)
@@ -889,6 +978,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = str(update.effective_user.id)
     data = init_user(user_id)
+    
+    # Додати ще слово
+    if query.data == "add_another_word":
+        context.user_data['adding_custom_word'] = True
+        context.user_data['custom_word_step'] = 'ukrainian'
+        
+        await query.edit_message_text(
+            "➕ **Додати своє слово**\n\n"
+            "Крок 1/2: Напишіть слово українською:\n\n"
+            "💡 Наприклад: собака"
+        )
+        return
     
     # Ігри
     if query.data == "game_guess":
