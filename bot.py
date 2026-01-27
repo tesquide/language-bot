@@ -863,6 +863,12 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Немає слів!", reply_markup=get_main_menu())
         return
     
+    # Вибір режиму повторення
+    keyboard = [
+        [InlineKeyboardButton("📖 Класичний режим", callback_data="review_mode_classic")],
+        [InlineKeyboardButton("🎯 Вгадай переклад (1 з 4)", callback_data="review_mode_quiz")]
+    ]
+    
     now = datetime.now()
     due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
     
@@ -870,15 +876,89 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🎉 Все повторено!", reply_markup=get_main_menu())
         return
     
+    await update.message.reply_text(
+        f"📚 **Режим повторення**\n\n"
+        f"Слів для повторення: {len(due)}\n\n"
+        f"Виберіть режим:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Класичний режим повторення
+async def start_classic_review(update, context, user_id):
+    """Запускає класичне повторення з показом картки"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    
     context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'classic'
     context.user_data['current_card_index'] = due[0]
     context.user_data['due_cards'] = due
     
     card = data['cards'][due[0]]
     
-    await update.message.reply_text(
+    await update.callback_query.edit_message_text(
         f"📚 Картка 1/{len(due)}\n\n🇺🇦 **{card['ukrainian']}**",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Показати", callback_data="show_answer")]])
+    )
+
+# Режим вікторини (1 з 4)
+async def start_quiz_review(update, context, user_id):
+    """Запускає повторення в режимі вікторини з 4 варіантами"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    
+    if len(data['cards']) < 4:
+        await update.callback_query.edit_message_text(
+            "❌ Для режиму вікторини потрібно мінімум 4 слова в словнику!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_review")]])
+        )
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'quiz'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['quiz_correct_count'] = 0
+    
+    await show_quiz_card(update.callback_query, context, data, due, 0)
+
+async def show_quiz_card(query, context, data, due, position):
+    """Показує картку в режимі вікторини"""
+    idx = due[position]
+    correct_card = data['cards'][idx]
+    
+    # Вибираємо 3 неправильні відповіді
+    wrong_cards = [c for i, c in enumerate(data['cards']) if i != idx]
+    if len(wrong_cards) >= 3:
+        wrong_options = random.sample(wrong_cards, 3)
+    else:
+        # Якщо менше 3 інших карток, додаємо ті що є
+        wrong_options = wrong_cards
+    
+    # Формуємо всі варіанти
+    all_options = [correct_card] + wrong_options
+    random.shuffle(all_options)
+    
+    # Зберігаємо правильну відповідь
+    context.user_data['quiz_correct_answer'] = correct_card['english']
+    
+    # Створюємо кнопки
+    keyboard = []
+    for opt in all_options:
+        keyboard.append([InlineKeyboardButton(
+            opt['english'], 
+            callback_data=f"quiz_answer:{opt['english']}"
+        )])
+    
+    await query.edit_message_text(
+        f"🎯 **Вікторина** - Картка {position + 1}/{len(due)}\n\n"
+        f"🇺🇦 **{correct_card['ukrainian']}**\n\n"
+        f"Виберіть правильний переклад:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 # Обробка повідомлень
@@ -989,6 +1069,113 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Крок 1/2: Напишіть слово українською:\n\n"
             "💡 Наприклад: собака"
         )
+        return
+    
+    # Вибір режиму повторення
+    elif query.data == "review_mode_classic":
+        await start_classic_review(update, context, user_id)
+    
+    elif query.data == "review_mode_quiz":
+        await start_quiz_review(update, context, user_id)
+    
+    elif query.data == "back_to_review":
+        # Повернутися до вибору режиму
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        keyboard = [
+            [InlineKeyboardButton("📖 Класичний режим", callback_data="review_mode_classic")],
+            [InlineKeyboardButton("🎯 Вгадай переклад (1 з 4)", callback_data="review_mode_quiz")]
+        ]
+        
+        await query.edit_message_text(
+            f"📚 **Режим повторення**\n\n"
+            f"Слів для повторення: {len(due)}\n\n"
+            f"Виберіть режим:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    # Відповідь у режимі вікторини
+    elif query.data.startswith("quiz_answer:"):
+        answer = query.data.split(":", 1)[1]
+        correct = context.user_data.get('quiz_correct_answer')
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Перевіряємо відповідь
+        is_correct = (answer == correct)
+        
+        if is_correct:
+            context.user_data['quiz_correct_count'] = context.user_data.get('quiz_correct_count', 0) + 1
+            result_emoji = "✅"
+            result_text = "Правильно!"
+            # Для правильної відповіді - легкий інтервал (7 днів)
+            interval_days = 7
+        else:
+            result_emoji = "❌"
+            result_text = f"Неправильно! Правильна відповідь: **{correct}**"
+            # Для неправильної відповіді - короткий інтервал (1 день)
+            interval_days = 1
+        
+        # Оновлюємо картку
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=interval_days)).isoformat()
+        data['stats']['total_reviews'] += 1
+        
+        if is_correct:
+            data['stats']['correct'] += 1
+        
+        save_user_data(user_id, data)
+        
+        # Перевіряємо чи є ще картки
+        if current_pos + 1 < len(due):
+            # Показуємо результат і переходимо до наступної картки
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            
+            # Короткий результат
+            await query.answer(f"{result_emoji} {result_text}", show_alert=False)
+            
+            # Показуємо наступну картку
+            await show_quiz_card(query, context, data, due, current_pos + 1)
+        else:
+            # Фінальний результат
+            correct_count = context.user_data.get('quiz_correct_count', 0)
+            total_count = len(due)
+            percentage = int((correct_count / total_count) * 100) if total_count > 0 else 0
+            
+            # Вибираємо емодзі в залежності від результату
+            if percentage >= 90:
+                result_emoji = "🏆"
+                grade = "Відмінно!"
+            elif percentage >= 70:
+                result_emoji = "🌟"
+                grade = "Добре!"
+            elif percentage >= 50:
+                result_emoji = "👍"
+                grade = "Непогано!"
+            else:
+                result_emoji = "💪"
+                grade = "Продовжуйте практикувати!"
+            
+            context.user_data.clear()
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторити ще раз", callback_data="review_mode_quiz")],
+                [InlineKeyboardButton("◀️ Головне меню", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                f"{result_emoji} **Повторення завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total_count} ({percentage}%)\n"
+                f"🎯 {grade}\n\n"
+                f"✅ Правильних: {correct_count}\n"
+                f"❌ Помилок: {total_count - correct_count}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    
+    elif query.data == "back_to_main":
+        await query.edit_message_text("Головне меню 👇")
         return
     
     # Ігри
@@ -1161,7 +1348,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             context.user_data.clear()
-            await query.edit_message_text("🎉 Все повторено!")
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторити ще раз", callback_data="review_mode_classic")],
+                [InlineKeyboardButton("◀️ Головне меню", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                "🎉 **Все повторено!**\n\nВи чудово попрацювали!",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
     
     # Налаштування
     elif query.data == "settings_level":
