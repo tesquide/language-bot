@@ -1109,12 +1109,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['quiz_correct_count'] = context.user_data.get('quiz_correct_count', 0) + 1
             result_emoji = "✅"
             result_text = "Правильно!"
-            # Для правильної відповіді - легкий інтервал (7 днів)
-            interval_days = 7
+            # Для правильної відповіді в режимі вікторини - 2 дні
+            interval_days = 2
         else:
             result_emoji = "❌"
             result_text = f"Неправильно! Правильна відповідь: **{correct}**"
-            # Для неправильної відповіді - короткий інтервал (1 день)
+            # Для неправильної відповіді - 1 день
             interval_days = 1
         
         # Оновлюємо картку
@@ -1170,7 +1170,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📊 Результат: {correct_count}/{total_count} ({percentage}%)\n"
                 f"🎯 {grade}\n\n"
                 f"✅ Правильних: {correct_count}\n"
-                f"❌ Помилок: {total_count - correct_count}",
+                f"❌ Помилок: {total_count - correct_count}\n\n"
+                f"💡 Правильні слова з'являться через 2 дні\n"
+                f"💡 Помилкові слова з'являться завтра",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
