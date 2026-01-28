@@ -5,7 +5,7 @@ import random
 import asyncio
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# ==================== БАЗА ДАНИХ ====================
-
+# Ініціалізація БД
 def init_database():
     """Створює таблицю users якщо не існує"""
     try:
@@ -38,6 +37,7 @@ def init_database():
     except Exception as e:
         logger.error(f"Database init error: {e}")
 
+# Завантаження даних користувача
 def load_user_data(user_id):
     """Завантажує дані користувача з БД"""
     try:
@@ -57,6 +57,7 @@ def load_user_data(user_id):
         logger.error(f"Error loading user data: {e}")
         return None
 
+# Збереження даних користувача
 def save_user_data(user_id, data):
     """Зберігає дані користувача в БД"""
     try:
@@ -76,6 +77,7 @@ def save_user_data(user_id, data):
     except Exception as e:
         logger.error(f"Error saving user data: {e}")
 
+# Отримання всіх користувачів
 def get_all_users():
     """Повертає всіх користувачів з БД"""
     try:
@@ -93,91 +95,457 @@ def get_all_users():
         logger.error(f"Error getting all users: {e}")
         return {}
 
-# ==================== ІНІЦІАЛІЗАЦІЯ КОРИСТУВАЧА ====================
-
+# Ініціалізація даних користувача
 def init_user(user_id):
     user_id = str(user_id)
     data = load_user_data(user_id)
     
     if data is None:
         data = {
-            # Колоди (Decks)
-            'decks': {
-                'default': {
-                    'name': '📚 Мої слова',
-                    'cards': [],
-                    'created_at': datetime.now().isoformat()
-                }
-            },
-            'active_deck': 'default',
-            
-            # Статистика
-            'stats': {
-                'total_reviews': 0,
-                'correct_reviews': 0,
-                'current_streak': 0,
-                'longest_streak': 0,
-                'last_review_date': None,
-                'total_study_time': 0,  # в хвилинах
-                'daily_goal': 20,  # слів на день
-                'daily_progress': {},  # {date: count}
-                'cards_learned': 0,  # кількість вивчених карток
-                'accuracy': 100.0  # точність у відсотках
-            },
-            
-            # Досягнення
-            'achievements': {
-                'first_word': False,
-                'streak_3': False,
-                'streak_7': False,
-                'streak_30': False,
-                'learned_50': False,
-                'learned_100': False,
-                'learned_500': False,
-                'perfect_session': False,
-                'night_owl': False,
-                'early_bird': False
-            },
-            
-            # Налаштування
-            'settings': {
-                'level': 'B1',
-                'target_language': 'en',
-                'reminders': {
-                    'enabled': True,
-                    'time': '20:00',
-                    'smart_reminders': True
-                },
-                'show_examples': True,
-                'auto_play_audio': False,
-                'review_order': 'smart'  # smart, random, oldest
-            },
-            
-            # Інше
-            'created_at': datetime.now().isoformat(),
-            'last_active': datetime.now().isoformat()
+            'cards': [],
+            'level': 'B1',
+            'stats': {'total_reviews': 0, 'correct': 0, 'streak': 0},
+            'target_language': 'en',
+            'read_texts': [],
+            'reminders': {'enabled': False, 'time': '20:00'},
+            'game_stats': {'correct': 0, 'total': 0},
+            'premium': False,
+            'course': None,
+            'course_progress': 0
         }
         save_user_data(user_id, data)
     
-    # Оновлюємо час останньої активності
-    data['last_active'] = datetime.now().isoformat()
-    save_user_data(user_id, data)
-    
     return data
 
-# ==================== ГОЛОВНЕ МЕНЮ ====================
-
+# Головне меню
 def get_main_menu():
-    """Головне меню як у Reword"""
     keyboard = [
-        [KeyboardButton("🎯 Вивчати"), KeyboardButton("📊 Статистика")],
-        [KeyboardButton("📚 Колоди"), KeyboardButton("➕ Додати")],
-        [KeyboardButton("🏆 Досягнення"), KeyboardButton("⚙️ Налаштування")]
+        [KeyboardButton("📖 Текст"), KeyboardButton("🔄 Перекласти")],
+        [KeyboardButton("📚 Повторити"), KeyboardButton("📕 Словник")],
+        [KeyboardButton("➕ Додати слово"), KeyboardButton("🎮 Ігри")],
+        [KeyboardButton("💬 Діалог AI"), KeyboardButton("🎓 Курси")],
+        [KeyboardButton("📊 Статистика"), KeyboardButton("⚙️ Налаштування")],
+        [KeyboardButton("❓ Допомога")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ==================== ПЕРЕКЛАД ====================
+# Тематичні словники (РОЗШИРЕНІ)
+THEMATIC_VOCABULARIES = {
+    '✈️ Подорожі': {
+        'airport': 'аеропорт', 'flight': 'рейс', 'ticket': 'квиток', 'passport': 'паспорт',
+        'luggage': 'багаж', 'hotel': 'готель', 'reservation': 'бронювання', 'tourist': 'турист',
+        'guide': 'гід', 'map': 'карта', 'destination': 'пункт призначення', 'journey': 'подорож',
+        'adventure': 'пригода', 'explore': 'досліджувати', 'vacation': 'відпустка', 'souvenir': 'сувенір',
+        'beach': 'пляж', 'mountain': 'гора', 'city': 'місто', 'museum': 'музей',
+        'restaurant': 'ресторан', 'taxi': 'таксі', 'train': 'поїзд', 'bus': 'автобус',
+        'station': 'станція', 'arrival': 'прибуття', 'departure': 'відправлення', 'delay': 'затримка',
+        'customs': 'митниця', 'visa': 'віза', 'border': 'кордон', 'backpack': 'рюкзак',
+        'cruise': 'круїз', 'island': 'острів', 'sunset': 'захід сонця', 'harbor': 'гавань'
+    },
+    '🍔 Їжа': {
+        'breakfast': 'сніданок', 'lunch': 'обід', 'dinner': 'вечеря', 'snack': 'перекус',
+        'vegetable': 'овоч', 'fruit': 'фрукт', 'meat': 'м\'ясо', 'fish': 'риба',
+        'bread': 'хліб', 'cheese': 'сир', 'milk': 'молоко', 'water': 'вода',
+        'juice': 'сік', 'coffee': 'кава', 'tea': 'чай', 'sugar': 'цукор',
+        'salt': 'сіль', 'pepper': 'перець', 'recipe': 'рецепт', 'dish': 'страва',
+        'menu': 'меню', 'waiter': 'офіціант', 'bill': 'рахунок', 'delicious': 'смачний',
+        'soup': 'суп', 'salad': 'салат', 'dessert': 'десерт', 'appetizer': 'закуска',
+        'sauce': 'соус', 'spicy': 'гострий', 'sweet': 'солодкий', 'bitter': 'гіркий',
+        'chicken': 'курка', 'beef': 'яловичина', 'pork': 'свинина', 'potato': 'картопля'
+    },
+    '💼 Бізнес': {
+        'job': 'робота', 'career': 'кар\'єра', 'office': 'офіс', 'manager': 'менеджер',
+        'employee': 'працівник', 'salary': 'зарплата', 'contract': 'контракт', 'meeting': 'зустріч',
+        'project': 'проект', 'deadline': 'дедлайн', 'team': 'команда', 'colleague': 'колега',
+        'boss': 'бос', 'client': 'клієнт', 'profit': 'прибуток', 'budget': 'бюджет',
+        'invoice': 'рахунок-фактура', 'deal': 'угода', 'agreement': 'домовленість', 'presentation': 'презентація',
+        'report': 'звіт', 'marketing': 'маркетинг', 'sales': 'продажі', 'revenue': 'дохід',
+        'startup': 'стартап', 'investor': 'інвестор', 'partnership': 'партнерство', 'strategy': 'стратегія',
+        'goal': 'ціль', 'success': 'успіх', 'failure': 'невдача', 'growth': 'зростання'
+    },
+    '🏥 Здоров\'я': {
+        'doctor': 'лікар', 'hospital': 'лікарня', 'medicine': 'ліки', 'pain': 'біль',
+        'headache': 'головний біль', 'fever': 'температура', 'cold': 'застуда', 'cough': 'кашель',
+        'flu': 'грип', 'prescription': 'рецепт', 'pharmacy': 'аптека', 'treatment': 'лікування',
+        'diagnosis': 'діагноз', 'symptom': 'симптом', 'exercise': 'вправа', 'diet': 'дієта',
+        'vitamin': 'вітамін', 'injury': 'травма', 'surgery': 'операція', 'recovery': 'одужання',
+        'patient': 'пацієнт', 'nurse': 'медсестра', 'clinic': 'клініка', 'emergency': 'екстрений випадок',
+        'appointment': 'прийом', 'vaccine': 'вакцина', 'allergy': 'алергія', 'infection': 'інфекція',
+        'bandage': 'бинт', 'pill': 'таблетка', 'healthy': 'здоровий', 'sick': 'хворий'
+    },
+    '🎓 Освіта': {
+        'school': 'школа', 'university': 'університет', 'student': 'студент', 'teacher': 'вчитель',
+        'lesson': 'урок', 'homework': 'домашнє завдання', 'exam': 'іспит', 'test': 'тест',
+        'grade': 'оцінка', 'knowledge': 'знання', 'study': 'вивчати', 'learn': 'вчити',
+        'book': 'книга', 'notebook': 'зошит', 'pen': 'ручка', 'pencil': 'олівець',
+        'library': 'бібліотека', 'course': 'курс', 'subject': 'предмет', 'classroom': 'клас',
+        'professor': 'професор', 'lecture': 'лекція', 'diploma': 'диплом', 'scholarship': 'стипендія',
+        'assignment': 'завдання', 'research': 'дослідження', 'thesis': 'дисертація', 'campus': 'кампус',
+        'semester': 'семестр', 'certificate': 'сертифікат', 'tuition': 'плата за навчання', 'major': 'спеціальність'
+    },
+    '💻 Технології': {
+        'computer': 'комп\'ютер', 'internet': 'інтернет', 'website': 'вебсайт', 'email': 'електронна пошта',
+        'password': 'пароль', 'software': 'програмне забезпечення', 'application': 'додаток', 'download': 'завантажити',
+        'upload': 'вивантажити', 'file': 'файл', 'folder': 'папка', 'data': 'дані',
+        'smartphone': 'смартфон', 'tablet': 'планшет', 'screen': 'екран', 'keyboard': 'клавіатура',
+        'mouse': 'миша', 'printer': 'принтер', 'wifi': 'вайфай', 'network': 'мережа',
+        'browser': 'браузер', 'search': 'пошук', 'cloud': 'хмара', 'backup': 'резервна копія',
+        'update': 'оновлення', 'virus': 'вірус', 'security': 'безпека', 'coding': 'програмування',
+        'algorithm': 'алгоритм', 'database': 'база даних', 'server': 'сервер', 'digital': 'цифровий'
+    },
+    '🏠 Дім': {
+        'house': 'будинок', 'room': 'кімната', 'kitchen': 'кухня', 'bathroom': 'ванна',
+        'bedroom': 'спальня', 'living room': 'вітальня', 'furniture': 'меблі', 'table': 'стіл',
+        'chair': 'стілець', 'bed': 'ліжко', 'sofa': 'диван', 'window': 'вікно',
+        'door': 'двері', 'floor': 'підлога', 'ceiling': 'стеля', 'wall': 'стіна',
+        'lamp': 'лампа', 'curtain': 'штора', 'carpet': 'килим', 'mirror': 'дзеркало',
+        'closet': 'шафа', 'drawer': 'ящик', 'shelf': 'полиця', 'pillow': 'подушка',
+        'blanket': 'ковдра', 'towel': 'рушник', 'shower': 'душ', 'sink': 'раковина',
+        'stove': 'плита', 'refrigerator': 'холодильник', 'garden': 'сад', 'garage': 'гараж'
+    },
+    '👔 Одяг': {
+        'clothes': 'одяг', 'shirt': 'сорочка', 'pants': 'штани', 'dress': 'сукня',
+        'skirt': 'спідниця', 'jacket': 'куртка', 'coat': 'пальто', 'shoes': 'взуття',
+        'boots': 'чоботи', 'sneakers': 'кросівки', 'hat': 'капелюх', 'cap': 'кепка',
+        'scarf': 'шарф', 'gloves': 'рукавички', 'socks': 'шкарпетки', 'belt': 'пояс',
+        'tie': 'краватка', 'sweater': 'светр', 'jeans': 'джинси', 't-shirt': 'футболка',
+        'suit': 'костюм', 'blouse': 'блузка', 'underwear': 'білизна', 'pajamas': 'піжама',
+        'uniform': 'уніформа', 'hoodie': 'худі', 'vest': 'жилет', 'shorts': 'шорти',
+        'sandals': 'сандалі', 'slippers': 'тапочки', 'raincoat': 'дощовик', 'swimsuit': 'купальник'
+    }
+}
 
+# База текстів (РОЗШИРЕНА)
+TEXTS_DATABASE = {
+    'A1': [
+        {"topic": "Daily routine", "text": "I wake up at 7 AM every day. I brush my teeth and wash my face. Then I eat breakfast with my family. I like to eat bread with jam and drink tea. After breakfast, I go to school."},
+        {"topic": "My family", "text": "I have a small family. There are four people: my mom, my dad, my sister, and me. My mom is a teacher. My dad is a doctor. My sister is five years old. We love each other."},
+        {"topic": "My pet", "text": "I have a cat. Her name is Lucy. She is white and very soft. Lucy likes to play with a ball. She sleeps on my bed. I feed her every morning and evening."},
+        {"topic": "My room", "text": "My room is small but cozy. I have a bed, a desk, and a chair. On my desk, I have books and pencils. I have a lamp too. My room has one window."},
+        {"topic": "Weekend", "text": "On Saturday and Sunday, I don't go to school. I wake up late. I play with my friends in the park. We ride bikes and play football. I like weekends very much."},
+        {"topic": "School", "text": "I go to school every day. My school is big. I have many friends there. We study math, English, and science. My favorite subject is English. I like my teacher."},
+        {"topic": "Food", "text": "I like pizza and ice cream. For breakfast, I eat cereal and milk. For lunch, I have a sandwich. For dinner, my mom cooks soup and chicken. I drink juice every day."},
+        {"topic": "Colors", "text": "My favorite color is blue. The sky is blue. The ocean is blue too. I also like red and green. Red is the color of apples. Green is the color of grass and trees."},
+        {"topic": "Weather", "text": "Today is sunny. The sun is shining. I like sunny days. Sometimes it rains. When it rains, I stay home. In winter, it snows. I like to make snowmen."},
+        {"topic": "My friend", "text": "My best friend is Tom. He is ten years old like me. We go to the same school. Tom likes football. We play together every day after school. He is very funny."},
+    ],
+    'A2': [
+        {"topic": "Travel", "text": "Last summer, my family went to the beach. We stayed in a hotel near the ocean. Every day we swam in the sea and played on the sand. The weather was perfect. In the evening, we ate fresh fish at restaurants. I collected many beautiful shells. It was the best vacation ever. I want to go back next year."},
+        {"topic": "Hobby", "text": "I love reading books. Every week, I go to the library and borrow new books. My favorite books are adventure stories. Reading helps me learn new words and understand different cultures. Sometimes I read before bed. My parents are happy that I like reading. They buy me books for my birthday."},
+        {"topic": "Shopping", "text": "Yesterday, I went shopping with my mother. We went to the supermarket to buy food for the week. We bought vegetables, fruits, meat, and bread. My mother also bought milk and eggs. I chose some cookies for myself. At the checkout, we paid with a credit card. Shopping took us two hours."},
+        {"topic": "Technology", "text": "I use my smartphone every day. I send messages to my friends and watch videos online. Sometimes I play games on my phone. My parents say I should not use it too much. They allow me to use it for one hour after homework. I also use my computer for school projects."},
+        {"topic": "Health", "text": "It is important to stay healthy. I try to eat fruits and vegetables every day. I also drink a lot of water. Three times a week, I play sports with my friends. I go to bed early to get enough sleep. When I feel sick, I visit the doctor. Being healthy makes me happy."},
+        {"topic": "Learning English", "text": "I have been learning English for two years. At first, it was difficult to remember new words. But now I can understand simple conversations. I practice English by watching movies with subtitles. My teacher is very patient and helpful. I want to speak English fluently one day."},
+        {"topic": "City life", "text": "I live in a big city. There are many tall buildings and busy streets. Every day I see lots of cars and buses. My city has beautiful parks where people walk and relax. There are also many shops and restaurants. Sometimes the city is noisy, but I like living here because there are many things to do."},
+        {"topic": "Birthday party", "text": "Last week was my birthday. My parents organized a party for me. They invited all my friends. We played games and ate cake. My friends gave me many presents. I got books, toys, and clothes. We had pizza and juice. It was a wonderful day. I thanked everyone for coming."},
+        {"topic": "Future plans", "text": "When I finish school, I want to go to university. I plan to study medicine because I want to be a doctor. Doctors help sick people and save lives. I know it will be difficult, but I will work hard. My parents support my dream. I hope to achieve my goal."},
+        {"topic": "Environment", "text": "We should protect our environment. I try to recycle paper and plastic. I don't throw trash on the street. I use a reusable water bottle instead of buying plastic bottles. Saving water and electricity is important too. If everyone helps a little, we can make the Earth cleaner and healthier."},
+    ],
+    'B1': [
+        {"topic": "Climate change", "text": "Climate change is one of the most pressing issues facing our planet today. Scientists warn that rising temperatures are causing polar ice caps to melt, leading to rising sea levels. Extreme weather events like hurricanes and droughts are becoming more frequent. Many countries are trying to reduce carbon emissions by using renewable energy sources such as solar and wind power. Individuals can also help by using public transportation, reducing plastic consumption, and recycling. While progress has been made, much more needs to be done to protect our environment for future generations."},
+        {"topic": "Social media", "text": "Social media has changed the way we communicate and share information. Platforms like Facebook and Instagram allow us to stay connected with friends and family around the world. However, spending too much time on social media can have negative effects. It can lead to anxiety, sleep problems, and reduced face-to-face interaction. Many people compare their lives to others online, which can cause unhappiness. It's important to use social media responsibly and take regular breaks. Finding a balance between online and offline life is essential for our mental health."},
+        {"topic": "Remote work", "text": "Working from home has become increasingly popular, especially after the pandemic. Many people appreciate the flexibility and time saved from not commuting. Remote work allows for a better work-life balance. However, it also has challenges. Some people feel isolated and miss the social interaction of an office. It can be difficult to separate work from personal life when both happen in the same space. Companies are now looking for ways to support remote workers better, including providing equipment and encouraging regular breaks."},
+        {"topic": "Healthy lifestyle", "text": "Maintaining a healthy lifestyle requires effort and dedication. Regular exercise is crucial - experts recommend at least 30 minutes of physical activity five days a week. Eating a balanced diet with plenty of fruits and vegetables provides essential nutrients. Getting seven to eight hours of sleep each night helps the body recover and function properly. Managing stress through meditation or hobbies is equally important. Avoiding smoking and limiting alcohol consumption also contribute to better health. Small changes in daily habits can lead to significant improvements over time."},
+        {"topic": "Online shopping", "text": "Online shopping has revolutionized the way we buy products. With just a few clicks, we can order almost anything and have it delivered to our door. This convenience saves time and often money, as online stores frequently offer discounts. However, there are disadvantages too. We cannot physically examine products before buying, and returning items can be complicated. There are also concerns about data security and online fraud. Despite these issues, e-commerce continues to grow rapidly, and traditional stores are adapting by creating their own online platforms."},
+    ],
+    'B2': [
+        {"topic": "Artificial intelligence", "text": "Artificial intelligence is rapidly transforming various aspects of our lives. From virtual assistants on our smartphones to complex algorithms that drive autonomous vehicles, AI is becoming increasingly integrated into modern society. In healthcare, AI systems can analyze medical images and help doctors diagnose diseases more accurately. In finance, algorithms detect fraudulent transactions and make investment decisions. However, this technological advancement raises important ethical questions. There are concerns about job displacement as automation replaces human workers. Privacy issues arise when AI systems collect and analyze personal data. Bias in AI algorithms can perpetuate existing societal prejudices. As we develop more sophisticated AI systems, we must carefully consider their implications and establish appropriate regulations to ensure they benefit humanity as a whole."},
+        {"topic": "Education reform", "text": "The traditional education system is facing significant challenges in the 21st century. Many educators argue that schools focus too heavily on standardized testing rather than fostering critical thinking and creativity. The rapid pace of technological change means that students need to develop adaptable skills rather than just memorizing facts. Some schools are experimenting with project-based learning, where students work on real-world problems and develop practical solutions. There's also growing interest in personalized learning approaches that cater to individual student needs and learning styles. However, implementing these changes is difficult. Teachers need training and support to adopt new methods. Not all schools have access to necessary technology and resources. Despite these obstacles, there's widespread agreement that education must evolve to prepare students for an uncertain future where the jobs they'll have may not even exist yet."},
+        {"topic": "Globalization", "text": "Globalization has fundamentally altered how businesses operate and how cultures interact. International trade has created unprecedented economic opportunities, allowing companies to source materials globally and reach customers worldwide. This has lifted millions out of poverty, particularly in developing countries. However, globalization also has its critics. Local industries struggle to compete with multinational corporations. Cultural homogenization threatens to erode unique traditions and languages. Environmental degradation has accelerated as companies seek the cheapest production methods regardless of ecological cost. The COVID-19 pandemic highlighted vulnerabilities in global supply chains, prompting discussions about the need for more localized production. As we move forward, the challenge is finding a balance between the benefits of global cooperation and the need to preserve local communities and protect the environment."},
+    ],
+    'C1': [
+        {"topic": "Philosophy", "text": "The philosophical debate surrounding free will versus determinism has captivated thinkers for centuries. On one hand, our subjective experience suggests that we make genuine choices and bear moral responsibility for our actions. We deliberate, weigh options, and ultimately decide based on our values and reasoning. On the other hand, advances in neuroscience reveal that many of our decisions may be predetermined by factors beyond our conscious control, including genetics, upbringing, and environmental influences. Brain imaging studies show that neural activity precedes conscious awareness of decisions, suggesting that our sense of choice might be an illusion. This paradox has profound implications not only for how we understand human behavior but also for our legal and ethical frameworks. If our actions are determined, can we truly be held responsible for them? Some contemporary philosophers argue for compatibilism, suggesting that free will and determinism need not be mutually exclusive concepts. They propose that freedom consists not in being undetermined, but in acting in accordance with one's own desires and rational deliberation, even if those desires themselves are causally determined. This nuanced view attempts to preserve moral responsibility while acknowledging the causal nature of the universe."},
+    ]
+}
+
+# Курси
+async def courses_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🌱 Початковий курс", callback_data="course_beginner")],
+        [InlineKeyboardButton("📚 Інформація про курси", callback_data="course_info")]
+    ]
+    await update.message.reply_text("🎓 **Курси:**", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Діалог з AI
+async def dialog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🍽 В ресторані", callback_data="dialog_restaurant")],
+        [InlineKeyboardButton("🛒 В магазині", callback_data="dialog_shop")],
+        [InlineKeyboardButton("💼 Співбесіда", callback_data="dialog_interview")],
+        [InlineKeyboardButton("🏨 В готелі", callback_data="dialog_hotel")],
+        [InlineKeyboardButton("✈️ В аеропорту", callback_data="dialog_airport")],
+        [InlineKeyboardButton("💬 Вільна розмова", callback_data="dialog_free")],
+        [InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]
+    ]
+    
+    await update.message.reply_text(
+        "💬 **Діалог з AI**\n\n"
+        "Виберіть сценарій для практики англійської:\n\n"
+        "Я буду відповідати англійською і виправляти ваші помилки!",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# AI діалог (використовує Claude API)
+async def start_dialog(query, scenario, context):
+    """Розпочинає діалог з AI"""
+    
+    scenarios = {
+        'restaurant': {
+            'name': 'В ресторані',
+            'prompt': 'You are a waiter in a restaurant. Start a conversation with the customer. Keep responses short (2-3 sentences). Be friendly and helpful.',
+            'first_message': "Good evening! Welcome to our restaurant. Would you like to see the menu?"
+        },
+        'shop': {
+            'name': 'В магазині',
+            'prompt': 'You are a shop assistant. Help the customer find what they need. Keep responses short and friendly.',
+            'first_message': "Hello! How can I help you today? Are you looking for something specific?"
+        },
+        'interview': {
+            'name': 'Співбесіда',
+            'prompt': 'You are conducting a job interview. Ask professional questions but be encouraging. Keep it conversational.',
+            'first_message': "Good morning! Thank you for coming. Please tell me a bit about yourself."
+        },
+        'hotel': {
+            'name': 'В готелі',
+            'prompt': 'You are a hotel receptionist. Help the guest with check-in and questions. Be polite and professional.',
+            'first_message': "Welcome to our hotel! Do you have a reservation?"
+        },
+        'airport': {
+            'name': 'В аеропорту',
+            'prompt': 'You are an airport staff member. Help travelers with their questions. Be clear and helpful.',
+            'first_message': "Hello! How may I assist you today? Are you checking in for a flight?"
+        },
+        'free': {
+            'name': 'Вільна розмова',
+            'prompt': 'You are a friendly English conversation partner. Talk about everyday topics. Be encouraging and correct mistakes gently.',
+            'first_message': "Hi! How are you today? What would you like to talk about?"
+        }
+    }
+    
+    scenario_info = scenarios.get(scenario, scenarios['free'])
+    
+    context.user_data['dialog_active'] = True
+    context.user_data['dialog_scenario'] = scenario
+    context.user_data['dialog_prompt'] = scenario_info['prompt']
+    context.user_data['dialog_history'] = []
+    
+    await query.edit_message_text(
+        f"💬 **{scenario_info['name']}**\n\n"
+        f"AI: {scenario_info['first_message']}\n\n"
+        f"💡 Відповідайте англійською. Я виправлю помилки!"
+    )
+
+# Обробка відповіді в діалозі
+async def process_dialog_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_message: str):
+    """Обробляє повідомлення користувача в діалозі"""
+    
+    user_id = str(update.effective_user.id)
+    
+    # Додаємо повідомлення в історію
+    if 'dialog_history' not in context.user_data:
+        context.user_data['dialog_history'] = []
+    
+    context.user_data['dialog_history'].append({
+        'role': 'user',
+        'content': user_message
+    })
+    
+    # Формуємо промпт для AI
+    system_prompt = context.user_data.get('dialog_prompt', 'You are a helpful English conversation partner.')
+    
+    # Обмежуємо історію до останніх 10 повідомлень
+    recent_history = context.user_data['dialog_history'][-10:]
+    
+    # Створюємо повідомлення для AI
+    conversation = f"{system_prompt}\n\nConversation history:\n"
+    for msg in recent_history:
+        role = "User" if msg['role'] == 'user' else "AI"
+        conversation += f"{role}: {msg['content']}\n"
+    
+    conversation += "\nRespond naturally in English (2-3 sentences). If the user made grammar or vocabulary mistakes, gently correct them at the end like: '✏️ Small correction: ...'"
+    
+    try:
+        # Використовуємо простий запит до Claude API
+        import requests
+        
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": os.getenv("ANTHROPIC_API_KEY", ""),
+                "anthropic-version": "2023-06-01"
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 300,
+                "messages": [
+                    {"role": "user", "content": conversation}
+                ]
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            ai_response = data['content'][0]['text']
+            
+            # Додаємо відповідь AI в історію
+            context.user_data['dialog_history'].append({
+                'role': 'assistant',
+                'content': ai_response
+            })
+            
+            keyboard = [[InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]]
+            
+            await update.message.reply_text(
+                f"💬 **AI:** {ai_response}",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Якщо API не працює - використовуємо простий fallback
+            await fallback_dialog_response(update, user_message, context)
+            
+    except Exception as e:
+        logger.error(f"Dialog AI error: {e}")
+        # Fallback на випадок помилки
+        await fallback_dialog_response(update, user_message, context)
+
+# Запасна відповідь якщо API не працює
+async def fallback_dialog_response(update: Update, user_message: str, context: ContextTypes.DEFAULT_TYPE):
+    """Прості відповіді якщо AI API не доступний"""
+    
+    scenario = context.user_data.get('dialog_scenario', 'free')
+    
+    responses = {
+        'restaurant': [
+            "Great choice! Would you like something to drink with that?",
+            "Certainly! I'll bring that right away. Anything else?",
+            "Perfect! Your order will be ready in about 15 minutes."
+        ],
+        'shop': [
+            "We have that in stock! What size do you need?",
+            "Let me check for you. One moment please.",
+            "That's a popular item! Would you like to try it?"
+        ],
+        'interview': [
+            "That's interesting! Can you tell me more about your experience?",
+            "Good answer! What are your strengths?",
+            "I see. Why do you want to work here?"
+        ],
+        'hotel': [
+            "Certainly! Let me check your reservation.",
+            "Your room is ready. Here's your key card.",
+            "Is there anything else I can help you with?"
+        ],
+        'airport': [
+            "Your gate is B12. Boarding starts at 3:00 PM.",
+            "Yes, you need to go through security first.",
+            "Have a pleasant flight!"
+        ],
+        'free': [
+            "That sounds interesting! Tell me more.",
+            "I understand. How do you feel about that?",
+            "Great! What else would you like to discuss?"
+        ]
+    }
+    
+    import random
+    response = random.choice(responses.get(scenario, responses['free']))
+    
+    keyboard = [[InlineKeyboardButton("❌ Завершити діалог", callback_data="dialog_end")]]
+    
+    await update.message.reply_text(
+        f"💬 **AI:** {response}\n\n"
+        f"💡 Keep practicing! Try using more complex sentences.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Додавання свого слова
+async def add_custom_word_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Початок процесу додавання свого слова"""
+    context.user_data['adding_custom_word'] = True
+    context.user_data['custom_word_step'] = 'ukrainian'
+    
+    await update.message.reply_text(
+        "➕ **Додати своє слово**\n\n"
+        "Крок 1/2: Напишіть слово українською:\n\n"
+        "💡 Наприклад: собака",
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+    )
+
+async def process_custom_word(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """Обробка додавання свого слова"""
+    user_id = str(update.effective_user.id)
+    data = init_user(user_id)
+    
+    if text == "❌ Скасувати":
+        context.user_data['adding_custom_word'] = False
+        context.user_data['custom_word_step'] = None
+        context.user_data.pop('custom_word_ukrainian', None)
+        await update.message.reply_text("❌ Скасовано", reply_markup=get_main_menu())
+        return
+    
+    step = context.user_data.get('custom_word_step')
+    
+    if step == 'ukrainian':
+        # Зберігаємо українське слово
+        context.user_data['custom_word_ukrainian'] = text.strip()
+        context.user_data['custom_word_step'] = 'english'
+        
+        await update.message.reply_text(
+            f"✅ Українське слово: **{text}**\n\n"
+            f"Крок 2/2: Тепер напишіть переклад англійською:\n\n"
+            f"💡 Наприклад: dog",
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+        )
+    
+    elif step == 'english':
+        # Зберігаємо англійське слово
+        ukrainian_word = context.user_data.get('custom_word_ukrainian', '')
+        english_word = text.strip()
+        
+        # Перевіряємо чи слово вже є
+        if any(c['english'].lower() == english_word.lower() for c in data['cards']):
+            await update.message.reply_text(
+                "⚠️ Це слово вже є у вашому словнику!\n\nСпробуйте інше слово:",
+                reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Скасувати")]], resize_keyboard=True)
+            )
+            return
+        
+        # Додаємо слово
+        data['cards'].append({
+            'ukrainian': ukrainian_word,
+            'english': english_word,
+            'added_date': datetime.now().isoformat(),
+            'next_review': datetime.now().isoformat(),
+            'interval': 1
+        })
+        
+        save_user_data(user_id, data)
+        
+        # Скидаємо стан
+        context.user_data['adding_custom_word'] = False
+        context.user_data['custom_word_step'] = None
+        context.user_data.pop('custom_word_ukrainian', None)
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Додати ще слово", callback_data="add_another_word")],
+            [InlineKeyboardButton("📕 Переглянути словник", callback_data="dict_my")]
+        ]
+        
+        await update.message.reply_text(
+            f"✅ **Слово додано!**\n\n"
+            f"🇺🇦 {ukrainian_word}\n"
+            f"🇬🇧 {english_word}\n\n"
+            f"📊 Всього слів у словнику: {len(data['cards'])}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        # Повертаємо головне меню через 1 секунду
+        await asyncio.sleep(1)
+        await update.message.reply_text("Головне меню:", reply_markup=get_main_menu())
+
+# Переклад
 def translate_word(text, from_lang='auto', to_lang='uk'):
     try:
         translator = GoogleTranslator(source=from_lang, target=to_lang)
@@ -186,876 +554,1313 @@ def translate_word(text, from_lang='auto', to_lang='uk'):
         logger.error(f"Translation error: {e}")
         return None
 
+# Reverso приклади (ПОКРАЩЕНА ВЕРСІЯ)
+def get_reverso_examples(word, source_lang='en', target_lang='uk'):
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        # Reverso Context URL
+        url = f"https://context.reverso.net/translation/{source_lang}-{target_lang}/{word}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://context.reverso.net/'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            logger.warning(f"Reverso returned status {response.status_code}")
+            return []
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        examples = []
+        
+        # Шукаємо приклади (Reverso може мати різну структуру)
+        example_divs = soup.find_all('div', class_='example')
+        
+        if not example_divs:
+            # Пробуємо альтернативний селектор
+            example_divs = soup.select('.ltr .example')
+        
+        logger.info(f"Found {len(example_divs)} examples for word '{word}'")
+        
+        for div in example_divs[:3]:
+            try:
+                source = div.find('div', class_='src')
+                target = div.find('div', class_='trg')
+                
+                if source and target:
+                    source_text = source.get_text(strip=True)
+                    target_text = target.get_text(strip=True)
+                    
+                    # Очищаємо від зайвих символів
+                    source_text = ' '.join(source_text.split())
+                    target_text = ' '.join(target_text.split())
+                    
+                    if source_text and target_text:
+                        examples.append({
+                            'source': source_text,
+                            'target': target_text
+                        })
+            except Exception as e:
+                logger.error(f"Error parsing example: {e}")
+                continue
+        
+        return examples
+    
+    except Exception as e:
+        logger.error(f"Reverso error: {e}")
+        return []
+
 def get_flag(lang_code):
     flags = {'en': '🇬🇧', 'de': '🇩🇪', 'fr': '🇫🇷', 'es': '🇪🇸', 'it': '🇮🇹', 'pl': '🇵🇱'}
     return flags.get(lang_code, '🌍')
 
-# ==================== STREAK СИСТЕМА ====================
-
-def update_streak(data):
-    """Оновлює streak користувача"""
-    today = date.today().isoformat()
-    last_review = data['stats'].get('last_review_date')
-    
-    if last_review is None:
-        # Перший раз
-        data['stats']['current_streak'] = 1
-        data['stats']['longest_streak'] = 1
-    elif last_review == today:
-        # Вже вчив сьогодні
-        pass
-    else:
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
-        if last_review == yesterday:
-            # Продовжуємо streak
-            data['stats']['current_streak'] += 1
-            if data['stats']['current_streak'] > data['stats']['longest_streak']:
-                data['stats']['longest_streak'] = data['stats']['current_streak']
-        else:
-            # Streak перервано
-            data['stats']['current_streak'] = 1
-    
-    data['stats']['last_review_date'] = today
-    
-    # Оновлюємо щоденний прогрес
-    if today not in data['stats']['daily_progress']:
-        data['stats']['daily_progress'][today] = 0
-    
-    return data
-
-def get_streak_emoji(streak):
-    """Повертає емодзі залежно від streak"""
-    if streak >= 30:
-        return "🔥💎"
-    elif streak >= 14:
-        return "🔥🔥"
-    elif streak >= 7:
-        return "🔥"
-    elif streak >= 3:
-        return "⭐"
-    else:
-        return "✨"
-
-# ==================== СИСТЕМА КАРТОК ====================
-
-def create_card(ukrainian, english, deck='default', difficulty='new'):
-    """Створює нову картку"""
-    return {
-        'ukrainian': ukrainian,
-        'english': english,
-        'difficulty': difficulty,  # new, learning, easy, medium, hard, mastered
-        'created_at': datetime.now().isoformat(),
-        'next_review': datetime.now().isoformat(),
-        'interval': 1,  # днів до наступного повторення
-        'ease_factor': 2.5,  # фактор легкості (для SM-2 алгоритму)
-        'reviews': 0,
-        'correct_reviews': 0,
-        'last_reviewed': None,
-        'deck': deck,
-        'examples': [],
-        'notes': ''
-    }
-
-def get_cards_due(data, deck=None):
-    """Повертає картки які треба повторити"""
-    if deck is None:
-        deck = data['active_deck']
-    
-    cards = data['decks'].get(deck, {}).get('cards', [])
-    now = datetime.now()
-    
-    due_cards = []
-    for i, card in enumerate(cards):
-        next_review = datetime.fromisoformat(card['next_review'])
-        if next_review <= now:
-            due_cards.append(i)
-    
-    return due_cards
-
-def get_new_cards(data, deck=None, limit=5):
-    """Повертає нові картки для вивчення"""
-    if deck is None:
-        deck = data['active_deck']
-    
-    cards = data['decks'].get(deck, {}).get('cards', [])
-    
-    new_cards = []
-    for i, card in enumerate(cards):
-        if card['difficulty'] == 'new' and card['reviews'] == 0:
-            new_cards.append(i)
-            if len(new_cards) >= limit:
-                break
-    
-    return new_cards
-
-# ==================== SM-2 АЛГОРИТМ (як у Anki/Reword) ====================
-
-def calculate_next_interval(card, quality):
-    """
-    Розраховує наступний інтервал за алгоритмом SM-2
-    quality: 0-5 (0=знову, 1=важко, 2-3=добре, 4-5=легко)
-    """
-    if quality < 3:
-        # Неправильна відповідь - повертаємо на початок
-        card['interval'] = 1
-        card['ease_factor'] = max(1.3, card['ease_factor'] - 0.2)
-        card['difficulty'] = 'learning'
-    else:
-        # Правильна відповідь
-        if card['reviews'] == 0:
-            card['interval'] = 1
-        elif card['reviews'] == 1:
-            card['interval'] = 6
-        else:
-            card['interval'] = round(card['interval'] * card['ease_factor'])
-        
-        # Оновлюємо ease_factor
-        card['ease_factor'] = card['ease_factor'] + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
-        card['ease_factor'] = max(1.3, card['ease_factor'])
-        
-        # Оновлюємо складність
-        if card['interval'] >= 21:
-            card['difficulty'] = 'mastered'
-        elif card['interval'] >= 7:
-            card['difficulty'] = 'easy'
-        elif card['interval'] >= 3:
-            card['difficulty'] = 'medium'
-        else:
-            card['difficulty'] = 'learning'
-    
-    card['next_review'] = (datetime.now() + timedelta(days=card['interval'])).isoformat()
-    card['reviews'] += 1
-    if quality >= 3:
-        card['correct_reviews'] += 1
-    card['last_reviewed'] = datetime.now().isoformat()
-    
-    return card
-
-# ==================== КОМАНДИ ====================
-
+# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    data = init_user(user_id)
+    init_user(user_id)
     
-    welcome_text = f"""
-🎓 **Вітаємо у Reword Bot!**
+    await update.message.reply_text("""
+🎓 **Вітаю у Language Learning Bot!**
 
-Розумна система вивчення слів з інтервальним повторенням.
+📖 **Тексти** - унікальні тексти для читання
+🔄 **Переклад** - з реальними прикладами
+➕ **Додати слово** - створіть свій словник
+📕 **Словник** - тематичні набори слів
+📚 **Повторення** - інтервальна система
+🎮 **Ігри** - скремблер та вгадування
+🎓 **Курси** - структуровані програми
 
-📊 **Ваш прогрес:**
-🔥 Streak: {data['stats']['current_streak']} днів
-📚 Вивчено: {data['stats']['cards_learned']} слів
-🎯 Точність: {data['stats']['accuracy']:.0f}%
+Використовуйте меню знизу 👇
+    """, reply_markup=get_main_menu())
 
-**Що можна робити:**
-🎯 **Вивчати** - розпочати сесію
-📊 **Статистика** - детальна статистика
-📚 **Колоди** - керування колодами
-➕ **Додати** - додати нове слово
-🏆 **Досягнення** - ваші нагороди
-⚙️ **Налаштування** - персоналізація
-
-💡 Почніть з додавання слів або вивчення!
-"""
-    
-    await update.message.reply_text(welcome_text, reply_markup=get_main_menu())
-
+# Команда /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-📖 **Довідка Reword Bot**
+    await update.message.reply_text("""
+📖 **Інструкція:**
 
-**🎯 Вивчати**
-Розпочинає сесію навчання. Система автоматично вибере:
-• Нові слова для вивчення
-• Слова що треба повторити
-• Складні слова для закріплення
+**📖 Текст** - Читати текст для вашого рівня
+**🔄 Перекласти** - Перекласти слово з прикладами
+**➕ Додати слово** - Додати своє слово зі своїм перекладом
+**📕 Словник** - Ваші слова + тематичні набори
+**📚 Повторити** - 5 режимів повторення:
+   • 📖 Класичний - показ з оцінкою складності
+   • 🎯 Вікторина - вибір 1 з 4 варіантів
+   • ⚡ Швидкий - просто перегляд слів
+   • ✍️ Написання - введення перекладу
+   • 🔄 Реверс - переклад UA→EN
+**🎮 Ігри** - Скремблер та вгадування
+**💬 Діалог AI** - Практика розмови англійською
+**🎓 Курси** - Структуровані програми
+**📊 Статистика** - Ваш прогрес
+**⚙️ Налаштування** - Рівень, мова, нагадування
 
-**📊 Статистика**
-Ваш прогрес:
-• Щоденна активність
-• Streak (послідовні дні)
-• Точність відповідей
-• Графіки прогресу
+💡 Ви можете повторювати слова коли завгодно!
+💡 Виберіть режим що вам подобається!
 
-**📚 Колоди**
-Організуйте слова за темами:
-• Створіть кілька колод
-• Перемикайтеся між ними
-• Відстежуйте прогрес кожної
+🆕 **Нові режими повторення вже доступні!**
+    """, reply_markup=get_main_menu())
 
-**➕ Додати слово**
-Два способи додавання:
-• Швидке: напишіть слово
-• Детальне: з прикладами та нотатками
-
-**🏆 Досягнення**
-Отримуйте нагороди за:
-• Регулярність навчання
-• Кількість вивчених слів
-• Досконалі сесії
-
-**⚙️ Налаштування**
-• Щоденна ціль
-• Час нагадувань
-• Режим повторення
-• Інше
-
-💡 Система використовує SM-2 алгоритм для оптимального запам'ятовування!
-"""
-    
-    await update.message.reply_text(help_text, reply_markup=get_main_menu())
-
-# ==================== СТАТИСТИКА ====================
-
-async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Налаштування
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     data = init_user(user_id)
-    stats = data['stats']
-    
-    # Підраховуємо картки
-    total_cards = sum(len(deck['cards']) for deck in data['decks'].values())
-    mastered = sum(1 for deck in data['decks'].values() for card in deck['cards'] if card['difficulty'] == 'mastered')
-    learning = sum(1 for deck in data['decks'].values() for card in deck['cards'] if card['difficulty'] in ['learning', 'new'])
-    
-    # Щоденна ціль
-    today = date.today().isoformat()
-    today_progress = stats['daily_progress'].get(today, 0)
-    daily_goal = stats['daily_goal']
-    progress_bar = create_progress_bar(today_progress, daily_goal)
-    
-    # Streak емодзі
-    streak_emoji = get_streak_emoji(stats['current_streak'])
-    
-    stats_text = f"""
-📊 **Ваша статистика**
-
-{streak_emoji} **Streak:** {stats['current_streak']} днів (рекорд: {stats['longest_streak']})
-
-📚 **Картки:**
-• Всього: {total_cards}
-• Вивчено: {mastered} 🌟
-• Вивчається: {learning} 📖
-
-🎯 **Щоденна ціль:** {today_progress}/{daily_goal}
-{progress_bar}
-
-📈 **Загальна статистика:**
-• Всього повторень: {stats['total_reviews']}
-• Правильних: {stats['correct_reviews']}
-• Точність: {stats['accuracy']:.1f}%
-• Час навчання: {stats['total_study_time']} хв
-
-📅 **Ця тиждень:**
-{get_week_stats(stats)}
-"""
     
     keyboard = [
-        [InlineKeyboardButton("📈 Детальна статистика", callback_data="detailed_stats")],
-        [InlineKeyboardButton("🎯 Змінити ціль", callback_data="change_goal")]
+        [InlineKeyboardButton(f"🎯 Рівень: {data['level']}", callback_data="settings_level")],
+        [InlineKeyboardButton("🌍 Мова", callback_data="settings_language")],
+        [InlineKeyboardButton("⏰ Нагадування", callback_data="settings_reminders")]
     ]
     
-    await update.message.reply_text(stats_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("⚙️ **Налаштування:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
-def create_progress_bar(current, goal, length=10):
-    """Створює прогрес бар"""
-    if goal == 0:
-        return "▱" * length
-    
-    filled = min(int((current / goal) * length), length)
-    empty = length - filled
-    
-    bar = "▰" * filled + "▱" * empty
-    percentage = min(int((current / goal) * 100), 100)
-    
-    return f"{bar} {percentage}%"
-
-def get_week_stats(stats):
-    """Статистика за тиждень"""
-    week_text = ""
-    for i in range(6, -1, -1):
-        day = (date.today() - timedelta(days=i)).isoformat()
-        count = stats['daily_progress'].get(day, 0)
-        day_name = (date.today() - timedelta(days=i)).strftime("%a")
-        
-        if count > 0:
-            bars = "█" * min(count // 5 + 1, 5)
-            week_text += f"{day_name}: {bars} ({count})\n"
-        else:
-            week_text += f"{day_name}: ▱\n"
-    
-    return week_text
-
-# ==================== КОЛОДИ ====================
-
-async def show_decks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Текст
+async def text_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     data = init_user(user_id)
     
-    decks_text = "📚 **Ваші колоди:**\n\n"
-    
-    keyboard = []
-    for deck_id, deck in data['decks'].items():
-        total = len(deck['cards'])
-        due = len(get_cards_due(data, deck_id))
-        new = len(get_new_cards(data, deck_id))
-        
-        active_mark = "✅ " if deck_id == data['active_deck'] else ""
-        decks_text += f"{active_mark}**{deck['name']}**\n"
-        decks_text += f"📊 {total} слів | 🔄 {due} до повторення | 🆕 {new} нових\n\n"
-        
-        keyboard.append([InlineKeyboardButton(
-            f"{active_mark}{deck['name']}", 
-            callback_data=f"deck_select_{deck_id}"
-        )])
-    
-    keyboard.append([InlineKeyboardButton("➕ Створити колоду", callback_data="deck_create")])
-    
-    await update.message.reply_text(decks_text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ==================== ДОДАВАННЯ СЛОВА ====================
-
-async def add_word_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Початок додавання слова"""
-    context.user_data['adding_word'] = True
-    context.user_data['word_step'] = 'ukrainian'
-    
-    keyboard = [[KeyboardButton("❌ Скасувати")]]
+    level = data['level']
+    texts = TEXTS_DATABASE.get(level, TEXTS_DATABASE['B1'])
+    text_data = random.choice(texts)
     
     await update.message.reply_text(
-        "➕ **Додати нове слово**\n\n"
-        "Крок 1/2: Напишіть слово українською:\n\n"
-        "💡 Наприклад: собака",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        f"📖 **Рівень {level}**\n📌 {text_data['topic']}\n\n{text_data['text']}\n\n💡 Напишіть незнайоме слово!",
+        reply_markup=get_main_menu()
     )
 
-async def process_add_word(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    """Обробка додавання слова"""
-    user_id = str(update.effective_user.id)
+# Переклад
+async def translate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Введіть слово:", reply_markup=get_main_menu())
+    context.user_data['waiting_for_translation'] = True
+
+async def process_translation(update, word, context, message=None):
+    user_id = str(update.effective_user.id if not message else update.message.from_user.id)
     data = init_user(user_id)
     
-    if text == "❌ Скасувати":
-        context.user_data['adding_word'] = False
-        await update.message.reply_text("❌ Скасовано", reply_markup=get_main_menu())
-        return
+    target_lang = data['target_language']
+    is_cyrillic = any('\u0400' <= char <= '\u04FF' for char in word)
     
-    step = context.user_data.get('word_step')
+    if is_cyrillic:
+        translation = translate_word(word, from_lang='uk', to_lang=target_lang)
+        from_word, to_word = word, translation
+        from_flag, to_flag = "🇺🇦", get_flag(target_lang)
+        reverso_lang = 'uk'
+    else:
+        translation = translate_word(word, from_lang=target_lang, to_lang='uk')
+        from_word, to_word = word, translation
+        from_flag, to_flag = get_flag(target_lang), "🇺🇦"
+        reverso_lang = target_lang
     
-    if step == 'ukrainian':
-        context.user_data['word_ukrainian'] = text.strip()
-        context.user_data['word_step'] = 'english'
+    if translation:
+        response = f"{from_flag} **{from_word}**\n{to_flag} **{to_word}**"
         
-        await update.message.reply_text(
-            f"✅ Українське: **{text}**\n\n"
-            f"Крок 2/2: Переклад англійською:\n\n"
-            f"💡 Наприклад: dog"
-        )
-    
-    elif step == 'english':
-        ukrainian = context.user_data.get('word_ukrainian', '')
-        english = text.strip()
+        # Додаємо приклади для англійських окремих слів
+        if len(from_word.split()) == 1 and not is_cyrillic and target_lang == 'en':
+            examples = get_reverso_examples(from_word, source_lang='en', target_lang='uk')
+            
+            # Якщо Reverso не дав прикладів - використовуємо базові
+            if not examples or len(examples) == 0:
+                # Базові приклади для поширених слів
+                basic_examples = {
+                    'book': [
+                        {'source': 'I read this book last week', 'target': 'Я читав цю книгу минулого тижня'},
+                        {'source': 'She loves reading books', 'target': 'Вона любить читати книги'}
+                    ],
+                    'hello': [
+                        {'source': 'Hello, how are you?', 'target': 'Привіт, як справи?'},
+                        {'source': 'He said hello to everyone', 'target': 'Він привітав усіх'}
+                    ],
+                    'work': [
+                        {'source': 'I work from home', 'target': 'Я працюю з дому'},
+                        {'source': 'She works hard every day', 'target': 'Вона важко працює щодня'}
+                    ],
+                    'learn': [
+                        {'source': 'I want to learn English', 'target': 'Я хочу вивчити англійську'},
+                        {'source': 'Learning languages is fun', 'target': 'Вивчення мов це весело'}
+                    ],
+                    'love': [
+                        {'source': 'I love my family', 'target': 'Я люблю свою сім\'ю'},
+                        {'source': 'She loves traveling', 'target': 'Вона любить подорожувати'}
+                    ]
+                }
+                
+                examples = basic_examples.get(from_word.lower(), [])
+            
+            if examples and len(examples) > 0:
+                response += "\n\n📝 **Приклади:**"
+                for i, ex in enumerate(examples[:3], 1):
+                    response += f"\n{i}. {ex['source']}"
+                    response += f"\n   → {ex['target']}\n"
         
-        # Створюємо картку
-        deck = data['active_deck']
-        card = create_card(ukrainian, english, deck)
+        keyboard = [[InlineKeyboardButton("➕ Додати в словник", callback_data=f"add_to_cards:{from_word}:{to_word}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        if deck not in data['decks']:
-            data['decks'][deck] = {'name': deck, 'cards': []}
-        
-        data['decks'][deck]['cards'].append(card)
-        
-        # Перше досягнення
-        if not data['achievements']['first_word']:
-            data['achievements']['first_word'] = True
-            achievement_text = "\n\n🏆 **Досягнення розблоковано:** Перше слово!"
+        if message:
+            await message.reply_text(response, reply_markup=reply_markup)
         else:
-            achievement_text = ""
-        
-        save_user_data(user_id, data)
-        
-        context.user_data['adding_word'] = False
-        context.user_data['word_step'] = None
-        
-        keyboard = [
-            [InlineKeyboardButton("➕ Додати ще", callback_data="add_another")],
-            [InlineKeyboardButton("🎯 Почати вивчати", callback_data="start_learning")]
-        ]
-        
-        total_cards = sum(len(d['cards']) for d in data['decks'].values())
-        
-        await update.message.reply_text(
-            f"✅ **Слово додано!**\n\n"
-            f"🇺🇦 {ukrainian}\n"
-            f"🇬🇧 {english}\n\n"
-            f"📚 Всього слів: {total_cards}{achievement_text}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        
-        await asyncio.sleep(1)
-        await update.message.reply_text("Головне меню:", reply_markup=get_main_menu())
+            await update.callback_query.message.reply_text(response, reply_markup=reply_markup)
+    else:
+        error_msg = f"❌ Не вдалося перекласти '{word}'"
+        if message:
+            await message.reply_text(error_msg, reply_markup=get_main_menu())
+        else:
+            await update.callback_query.message.reply_text(error_msg)
 
-# ==================== НАВЧАННЯ ====================
-
-async def start_learning(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Початок сесії навчання"""
+# Словник
+async def dictionary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     data = init_user(user_id)
-    
-    deck = data['active_deck']
-    due = get_cards_due(data, deck)
-    new = get_new_cards(data, deck, limit=5)
-    
-    # Комбінуємо картки
-    cards_to_review = due + new
-    
-    if not cards_to_review:
-        await update.message.reply_text(
-            "🎉 **Вітаємо!**\n\n"
-            "Немає карток для повторення сьогодні!\n\n"
-            "➕ Додайте нові слова або поверніться пізніше.",
-            reply_markup=get_main_menu()
-        )
-        return
-    
-    # Перемішуємо
-    random.shuffle(cards_to_review)
-    
-    context.user_data['learning_session'] = {
-        'cards': cards_to_review,
-        'current': 0,
-        'correct': 0,
-        'start_time': datetime.now(),
-        'deck': deck
-    }
     
     keyboard = [
-        [InlineKeyboardButton("📖 Класичний", callback_data="learn_classic")],
-        [InlineKeyboardButton("🎯 Тест (1 з 4)", callback_data="learn_quiz")],
-        [InlineKeyboardButton("✍️ Написання", callback_data="learn_typing")]
+        [InlineKeyboardButton("📋 Мої слова", callback_data="dict_my")],
+        [InlineKeyboardButton("📚 Тематичні", callback_data="dict_thematic")],
+        [InlineKeyboardButton("🗑 Видалити слово", callback_data="dict_delete")]
     ]
     
     await update.message.reply_text(
-        f"🎯 **Сесія навчання**\n\n"
-        f"📚 Слів до вивчення: {len(cards_to_review)}\n"
-        f"🔄 До повторення: {len(due)}\n"
-        f"🆕 Нових: {len(new)}\n\n"
-        f"Виберіть режим:",
+        f"📕 **Словник**\n\nВаших слів: {len(data['cards'])}",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def show_learning_card(query, context, mode='classic'):
-    """Показує картку для вивчення"""
-    session = context.user_data.get('learning_session')
-    if not session:
-        await query.edit_message_text("Сесія завершена")
-        return
-    
-    user_id = str(query.from_user.id)
+# Ігри
+async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🎯 Вгадай переклад", callback_data="game_guess")],
+        [InlineKeyboardButton("🔤 Скремблер", callback_data="game_scramble")]
+    ]
+    await update.message.reply_text("🎮 **Виберіть гру:**", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Гра вгадування
+async def game_guess_command(update: Update, context: ContextTypes.DEFAULT_TYPE, from_callback=False):
+    user_id = str(update.effective_user.id if not from_callback else update.callback_query.from_user.id)
     data = init_user(user_id)
     
-    cards = session['cards']
-    current_idx = session['current']
-    
-    if current_idx >= len(cards):
-        # Завершення сесії
-        await finish_learning_session(query, context, user_id, data)
+    if len(data['cards']) < 4:
+        msg = "Потрібно мінімум 4 слова!"
+        if from_callback:
+            await update.callback_query.message.reply_text(msg)
+        else:
+            await update.message.reply_text(msg)
         return
     
-    card_idx = cards[current_idx]
-    deck = session['deck']
-    card = data['decks'][deck]['cards'][card_idx]
-    
-    if mode == 'classic':
-        keyboard = [[InlineKeyboardButton("👁 Показати відповідь", callback_data="show_card_answer")]]
-        
-        await query.edit_message_text(
-            f"📚 Картка {current_idx + 1}/{len(cards)}\n\n"
-            f"🇺🇦 **{card['ukrainian']}**\n\n"
-            f"🔄 Повторень: {card['reviews']}\n"
-            f"📊 Рівень: {get_difficulty_emoji(card['difficulty'])}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    
-    elif mode == 'quiz':
-        # Вікторина
-        await show_quiz_card_learning(query, context, data, deck, card_idx, current_idx, len(cards))
-
-def get_difficulty_emoji(difficulty):
-    """Емодзі для рівня складності"""
-    emojis = {
-        'new': '🆕 Нове',
-        'learning': '📖 Вивчається',
-        'easy': '😊 Легко',
-        'medium': '🤔 Середнє',
-        'hard': '😓 Складно',
-        'mastered': '⭐ Вивчено'
-    }
-    return emojis.get(difficulty, '📖')
-
-async def show_quiz_card_learning(query, context, data, deck, card_idx, current, total):
-    """Показує картку-тест"""
-    card = data['decks'][deck]['cards'][card_idx]
-    
-    # Генеруємо неправильні відповіді
-    all_cards = data['decks'][deck]['cards']
-    wrong = [c for i, c in enumerate(all_cards) if i != card_idx]
-    
-    if len(wrong) >= 3:
-        wrong_options = random.sample(wrong, 3)
-    else:
-        wrong_options = wrong
-    
-    options = [card] + wrong_options
+    correct = random.choice(data['cards'])
+    wrong = random.sample([c for c in data['cards'] if c != correct], 3)
+    options = [correct] + wrong
     random.shuffle(options)
     
-    context.user_data['quiz_correct'] = card['english']
+    context.user_data['game_correct'] = correct['english']
     
+    keyboard = [[InlineKeyboardButton(opt['english'], callback_data=f"game_answer:{opt['english']}")] for opt in options]
+    
+    msg = f"🎮 **Вгадай**\n\n🇺🇦 {correct['ukrainian']}"
+    
+    if from_callback:
+        await update.callback_query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Гра скремблер
+async def game_scramble_command(update: Update, context: ContextTypes.DEFAULT_TYPE, from_callback=False):
+    user_id = str(update.effective_user.id if not from_callback else update.callback_query.from_user.id)
+    data = init_user(user_id)
+    
+    if not data['cards']:
+        return
+    
+    card = random.choice(data['cards'])
+    word = card['english']
+    scrambled = ''.join(random.sample(word, len(word)))
+    
+    context.user_data['scramble_word'] = word.lower()
+    context.user_data['scramble_translation'] = card['ukrainian']
+    
+    msg = f"🔤 **Скремблер**\n\nСкладіть слово: **{scrambled.upper()}**\n\n💡 Підказка: {card['ukrainian']}"
+    
+    if from_callback:
+        await update.callback_query.message.reply_text(msg)
+    else:
+        await update.message.reply_text(msg)
+
+# Статистика
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    data = init_user(user_id)
+    
+    await update.message.reply_text(f"""
+📊 **Статистика**
+
+🎯 Рівень: {data['level']}
+📕 Слів: {len(data['cards'])}
+✅ Повторень: {data['stats']['total_reviews']}
+🎮 Ігор: {data['game_stats']['total']}
+    """, reply_markup=get_main_menu())
+
+# Повторення
+async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    data = init_user(user_id)
+    
+    if not data['cards']:
+        await update.message.reply_text("Немає слів!", reply_markup=get_main_menu())
+        return
+    
+    now = datetime.now()
+    due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    
+    # Вибір: повторити по розкладу або всі слова
+    keyboard = [
+        [InlineKeyboardButton(f"📅 По розкладу ({len(due)} слів)", callback_data="review_scheduled")],
+        [InlineKeyboardButton(f"📚 Всі слова ({len(data['cards'])} слів)", callback_data="review_all")]
+    ]
+    
+    if len(due) == 0:
+        message_text = "🎉 **Повторення**\n\nСлів за розкладом: 0\n\nВиберіть режим:"
+    else:
+        message_text = f"📚 **Повторення**\n\nСлів за розкладом: {len(due)}\nВсього слів: {len(data['cards'])}\n\nВиберіть режим:"
+    
+    await update.message.reply_text(
+        message_text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Вибір режиму після вибору кількості слів
+async def show_review_mode_selection(query, due_count, review_type, context):
+    """Показує вибір режиму повторення"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 Класичний", callback_data=f"mode_{review_type}_classic")],
+        [InlineKeyboardButton("🎯 Вікторина (1 з 4)", callback_data=f"mode_{review_type}_quiz")],
+        [InlineKeyboardButton("⚡ Швидкий режим", callback_data=f"mode_{review_type}_fast")],
+        [InlineKeyboardButton("✍️ Написання", callback_data=f"mode_{review_type}_typing")],
+        [InlineKeyboardButton("🔄 Реверс (UA→EN)", callback_data=f"mode_{review_type}_reverse")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_review_start")]
+    ]
+    
+    await query.edit_message_text(
+        f"🎮 **Виберіть режим повторення**\n\n"
+        f"Слів для повторення: {due_count}\n\n"
+        f"**Режими:**\n"
+        f"📖 **Класичний** - показ картки з оцінкою\n"
+        f"🎯 **Вікторина** - вибір 1 з 4 варіантів\n"
+        f"⚡ **Швидкий** - просто перегляд слів\n"
+        f"✍️ **Написання** - введіть переклад\n"
+        f"🔄 **Реверс** - переклад з української на англійську",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Класичний режим повторення
+async def start_classic_review(update, context, user_id, review_type='scheduled'):
+    """Запускає класичне повторення з показом картки"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'classic'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    
+    card = data['cards'][due[0]]
+    
+    await update.callback_query.edit_message_text(
+        f"📚 Картка 1/{len(due)}\n\n🇺🇦 **{card['ukrainian']}**",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Показати", callback_data="show_answer")]])
+    )
+
+# Режим вікторини (1 з 4)
+async def start_quiz_review(update, context, user_id, review_type='scheduled'):
+    """Запускає повторення в режимі вікторини з 4 варіантами"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if len(data['cards']) < 4:
+        await update.callback_query.edit_message_text(
+            "❌ Для режиму вікторини потрібно мінімум 4 слова в словнику!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_review")]])
+        )
+        return
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'quiz'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['quiz_correct_count'] = 0
+    
+    await show_quiz_card(update.callback_query, context, data, due, 0)
+
+# Швидкий режим - просто перегляд
+async def start_fast_review(update, context, user_id, review_type='scheduled'):
+    """Швидкий режим - автоматичний показ слів"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'fast'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    
+    card = data['cards'][due[0]]
+    
+    keyboard = [
+        [InlineKeyboardButton("➡️ Далі", callback_data="fast_next")],
+        [InlineKeyboardButton("❌ Завершити", callback_data="fast_end")]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        f"⚡ **Швидкий режим** - {1}/{len(due)}\n\n"
+        f"🇺🇦 **{card['ukrainian']}**\n"
+        f"🇬🇧 **{card['english']}**",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Режим написання
+async def start_typing_review(update, context, user_id, review_type='scheduled'):
+    """Режим з введенням відповіді"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'typing'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['typing_correct_count'] = 0
+    
+    card = data['cards'][due[0]]
+    
+    keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+    
+    await update.callback_query.edit_message_text(
+        f"✍️ **Режим написання** - {1}/{len(due)}\n\n"
+        f"🇺🇦 **{card['ukrainian']}**\n\n"
+        f"💡 Напишіть переклад англійською:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Реверс режим (UA → EN)
+async def start_reverse_review(update, context, user_id, review_type='scheduled'):
+    """Реверс режим - з української на англійську"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if len(data['cards']) < 4:
+        await update.callback_query.edit_message_text(
+            "❌ Для цього режиму потрібно мінімум 4 слова!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_review")]])
+        )
+        return
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'reverse'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['reverse_correct_count'] = 0
+    
+    await show_reverse_card(update.callback_query, context, data, due, 0)
+
+async def show_reverse_card(query, context, data, due, position):
+    """Показує картку в реверс режимі (Ukrainian → English)"""
+    idx = due[position]
+    correct_card = data['cards'][idx]
+    
+    # Вибираємо 3 неправильні відповіді
+    wrong_cards = [c for i, c in enumerate(data['cards']) if i != idx]
+    if len(wrong_cards) >= 3:
+        wrong_options = random.sample(wrong_cards, 3)
+    else:
+        wrong_options = wrong_cards
+    
+    # Формуємо всі варіанти (Ukrainian words)
+    all_options = [correct_card] + wrong_options
+    random.shuffle(all_options)
+    
+    # Зберігаємо правильну відповідь
+    context.user_data['reverse_correct_answer'] = correct_card['ukrainian']
+    
+    # Створюємо кнопки з українськими словами
     keyboard = []
-    for opt in options:
+    for opt in all_options:
         keyboard.append([InlineKeyboardButton(
-            opt['english'],
-            callback_data=f"quiz_ans_{opt['english']}"
+            opt['ukrainian'], 
+            callback_data=f"reverse_answer:{opt['ukrainian']}"
         )])
     
     await query.edit_message_text(
-        f"🎯 Тест {current + 1}/{total}\n\n"
-        f"🇺🇦 **{card['ukrainian']}**\n\n"
+        f"🔄 **Реверс режим** - Картка {position + 1}/{len(due)}\n\n"
+        f"🇬🇧 **{correct_card['english']}**\n\n"
+        f"Виберіть правильний переклад українською:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def show_quiz_card(query, context, data, due, position):
+    """Показує картку в режимі вікторини"""
+    idx = due[position]
+    correct_card = data['cards'][idx]
+    
+    # Вибираємо 3 неправильні відповіді
+    wrong_cards = [c for i, c in enumerate(data['cards']) if i != idx]
+    if len(wrong_cards) >= 3:
+        wrong_options = random.sample(wrong_cards, 3)
+    else:
+        # Якщо менше 3 інших карток, додаємо ті що є
+        wrong_options = wrong_cards
+    
+    # Формуємо всі варіанти
+    all_options = [correct_card] + wrong_options
+    random.shuffle(all_options)
+    
+    # Зберігаємо правильну відповідь
+    context.user_data['quiz_correct_answer'] = correct_card['english']
+    
+    # Створюємо кнопки
+    keyboard = []
+    for opt in all_options:
+        keyboard.append([InlineKeyboardButton(
+            opt['english'], 
+            callback_data=f"quiz_answer:{opt['english']}"
+        )])
+    
+    await query.edit_message_text(
+        f"🎯 **Вікторина** - Картка {position + 1}/{len(due)}\n\n"
+        f"🇺🇦 **{correct_card['ukrainian']}**\n\n"
         f"Виберіть правильний переклад:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def finish_learning_session(query, context, user_id, data):
-    """Завершує сесію навчання"""
-    session = context.user_data.get('learning_session')
-    if not session:
-        return
-    
-    # Підраховуємо статистику
-    total = len(session['cards'])
-    correct = session.get('correct', 0)
-    duration = (datetime.now() - session['start_time']).total_seconds() / 60
-    
-    # Оновлюємо streak
-    data = update_streak(data)
-    
-    # Оновлюємо щоденний прогрес
-    today = date.today().isoformat()
-    data['stats']['daily_progress'][today] = data['stats']['daily_progress'].get(today, 0) + total
-    
-    # Оновлюємо загальну статистику
-    data['stats']['total_study_time'] += int(duration)
-    
-    # Точність
-    if data['stats']['total_reviews'] > 0:
-        data['stats']['accuracy'] = (data['stats']['correct_reviews'] / data['stats']['total_reviews']) * 100
-    
-    # Перевіряємо досягнення
-    achievements_unlocked = []
-    
-    if correct == total and total >= 10 and not data['achievements']['perfect_session']:
-        data['achievements']['perfect_session'] = True
-        achievements_unlocked.append("🏆 Ідеальна сесія")
-    
-    if data['stats']['current_streak'] >= 3 and not data['achievements']['streak_3']:
-        data['achievements']['streak_3'] = True
-        achievements_unlocked.append("🔥 3 дні підряд")
-    
-    if data['stats']['current_streak'] >= 7 and not data['achievements']['streak_7']:
-        data['achievements']['streak_7'] = True
-        achievements_unlocked.append("🔥 Тиждень streak")
-    
-    save_user_data(user_id, data)
-    
-    # Повідомлення
-    percentage = int((correct / total) * 100) if total > 0 else 0
-    
-    if percentage >= 90:
-        result_emoji = "🏆"
-        result_text = "Чудова робота!"
-    elif percentage >= 70:
-        result_emoji = "🌟"
-        result_text = "Добре!"
-    else:
-        result_emoji = "💪"
-        result_text = "Продовжуйте!"
-    
-    achievements_text = ""
-    if achievements_unlocked:
-        achievements_text = "\n\n🏆 **Досягнення:**\n" + "\n".join(f"• {a}" for a in achievements_unlocked)
-    
-    streak_emoji = get_streak_emoji(data['stats']['current_streak'])
-    
-    result_message = f"""
-{result_emoji} **Сесію завершено!**
-
-📊 **Результат:**
-• Картки: {total}
-• Правильно: {correct} ({percentage}%)
-• Час: {int(duration)} хв
-
-{streak_emoji} **Streak:** {data['stats']['current_streak']} днів
-
-{result_text}{achievements_text}
-"""
-    
-    keyboard = [
-        [InlineKeyboardButton("🔄 Ще раз", callback_data="start_learning")],
-        [InlineKeyboardButton("📊 Статистика", callback_data="show_stats")]
-    ]
-    
-    await query.edit_message_text(result_message, reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    context.user_data.pop('learning_session', None)
-
-# ==================== ДОСЯГНЕННЯ ====================
-
-async def show_achievements(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = init_user(user_id)
-    
-    achievements = data['achievements']
-    
-    achievements_list = [
-        ('first_word', '📚', 'Перше слово', 'Додайте перше слово'),
-        ('streak_3', '🔥', '3 дні streak', 'Вчіться 3 дні підряд'),
-        ('streak_7', '🔥🔥', 'Тиждень streak', 'Вчіться тиждень підряд'),
-        ('streak_30', '💎', '30 днів streak', 'Вчіться місяць підряд'),
-        ('learned_50', '⭐', '50 слів', 'Вивчіть 50 слів'),
-        ('learned_100', '🌟', '100 слів', 'Вивчіть 100 слів'),
-        ('learned_500', '💫', '500 слів', 'Вивчіть 500 слів'),
-        ('perfect_session', '🏆', 'Ідеальна сесія', '100% у сесії з 10+ слів'),
-        ('night_owl', '🦉', 'Нічна сова', 'Вчіться після 23:00'),
-        ('early_bird', '🐦', 'Рання пташка', 'Вчіться до 7:00')
-    ]
-    
-    text = "🏆 **Ваші досягнення**\n\n"
-    
-    unlocked = 0
-    for key, emoji, name, desc in achievements_list:
-        if achievements.get(key, False):
-            text += f"{emoji} **{name}** ✅\n"
-            unlocked += 1
-        else:
-            text += f"🔒 {name}\n   _{desc}_\n"
-        text += "\n"
-    
-    text += f"\n📊 Розблоковано: {unlocked}/{len(achievements_list)}"
-    
-    await update.message.reply_text(text, reply_markup=get_main_menu())
-
-# ==================== НАЛАШТУВАННЯ ====================
-
-async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    data = init_user(user_id)
-    settings = data['settings']
-    
-    keyboard = [
-        [InlineKeyboardButton(f"🎯 Щоденна ціль: {data['stats']['daily_goal']}", callback_data="set_daily_goal")],
-        [InlineKeyboardButton(f"⏰ Нагадування: {settings['reminders']['time']}", callback_data="set_reminder_time")],
-        [InlineKeyboardButton(f"📊 Рівень: {settings['level']}", callback_data="set_level")],
-        [InlineKeyboardButton(f"🌍 Мова: {settings['target_language']}", callback_data="set_language")]
-    ]
-    
-    await update.message.reply_text(
-        "⚙️ **Налаштування**\n\nВиберіть опцію:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# ==================== ОБРОБКА ПОВІДОМЛЕНЬ ====================
-
+# Обробка повідомлень
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     text = update.message.text
     
-    # Головні кнопки меню
-    if text == "🎯 Вивчати":
-        await start_learning(update, context)
+    # Меню
+    if text == "📖 Текст":
+        await text_command(update, context)
+    elif text == "🔄 Перекласти":
+        await translate_command(update, context)
+    elif text == "➕ Додати слово":
+        await add_custom_word_start(update, context)
+    elif text == "📚 Повторити":
+        await review(update, context)
+    elif text == "📕 Словник":
+        await dictionary_command(update, context)
+    elif text == "🎮 Ігри":
+        await games_menu(update, context)
+    elif text == "💬 Діалог AI":
+        await dialog_menu(update, context)
+    elif text == "🎓 Курси":
+        await courses_menu(update, context)
     elif text == "📊 Статистика":
-        await show_statistics(update, context)
-    elif text == "📚 Колоди":
-        await show_decks(update, context)
-    elif text == "➕ Додати":
-        await add_word_start(update, context)
-    elif text == "🏆 Досягнення":
-        await show_achievements(update, context)
+        await stats(update, context)
     elif text == "⚙️ Налаштування":
-        await show_settings(update, context)
-    # Додавання слова
-    elif context.user_data.get('adding_word'):
-        await process_add_word(update, context, text)
-    # Режим написання в навчанні
-    elif context.user_data.get('learning_mode') == 'typing':
-        await process_typing_answer(update, context, text)
-    else:
-        # Швидке додавання через переклад
-        await quick_translate(update, context, text)
-
-async def quick_translate(update: Update, context: ContextTypes.DEFAULT_TYPE, word: str):
-    """Швидкий переклад і додавання слова"""
-    user_id = str(update.effective_user.id)
-    data = init_user(user_id)
-    
-    is_cyrillic = any('\u0400' <= char <= '\u04FF' for char in word)
-    
-    if is_cyrillic:
-        translation = translate_word(word, from_lang='uk', to_lang='en')
-        from_word, to_word = word, translation
-        from_flag, to_flag = "🇺🇦", "🇬🇧"
-    else:
-        translation = translate_word(word, from_lang='en', to_lang='uk')
-        from_word, to_word = translation, word
-        from_flag, to_flag = "🇺🇦", "🇬🇧"
-    
-    if translation:
-        keyboard = [[InlineKeyboardButton("➕ Додати до колоди", callback_data=f"quick_add:{from_word}:{to_word}")]]
+        await settings_command(update, context)
+    elif text == "❓ Допомога":
+        await help_command(update, context)
+    # Додавання свого слова
+    elif context.user_data.get('adding_custom_word'):
+        await process_custom_word(update, context, text)
+        return
+    # Режим написання - перевірка введеної відповіді
+    elif context.user_data.get('review_mode') == 'typing':
+        user_id = str(update.effective_user.id)
+        data = init_user(user_id)
         
-        await update.message.reply_text(
-            f"{from_flag} **{from_word}**\n{to_flag} **{to_word}**",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        idx = context.user_data.get('current_card_index')
+        card = data['cards'][idx]
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(idx)
+        
+        # Перевіряємо відповідь (з урахуванням регістру)
+        user_answer = text.strip().lower()
+        correct_answer = card['english'].lower()
+        
+        if user_answer == correct_answer:
+            # Правильно
+            context.user_data['typing_correct_count'] = context.user_data.get('typing_correct_count', 0) + 1
+            data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=2)).isoformat()
+            data['stats']['total_reviews'] += 1
+            data['stats']['correct'] += 1
+            save_user_data(user_id, data)
+            
+            await update.message.reply_text("✅ Правильно!")
+        else:
+            # Неправильно
+            data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=1)).isoformat()
+            data['stats']['total_reviews'] += 1
+            save_user_data(user_id, data)
+            
+            await update.message.reply_text(f"❌ Неправильно!\nПравильно: **{card['english']}**")
+        
+        # Наступна картка або завершення
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            next_card = data['cards'][next_idx]
+            
+            keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+            
+            await update.message.reply_text(
+                f"✍️ **Режим написання** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{next_card['ukrainian']}**\n\n"
+                f"💡 Напишіть переклад англійською:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Завершення
+            correct_count = context.user_data.get('typing_correct_count', 0)
+            total = len(due)
+            percentage = int((correct_count / total) * 100) if total > 0 else 0
+            
+            context.user_data.clear()
+            
+            await update.message.reply_text(
+                f"✅ **Режим написання завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total} ({percentage}%)\n\n"
+                f"💡 Слова з'являться через 1-2 дні",
+                reply_markup=get_main_menu()
+            )
+        return
+    # Активний діалог з AI
+    elif context.user_data.get('dialog_active'):
+        await process_dialog_message(update, context, text)
+        return
+    # Видалення зі словника
+    elif context.user_data.get('dict_delete_mode'):
+        data = init_user(user_id)
+        deleted = False
+        
+        # Перевірка чи це номер
+        try:
+            num = int(text) - 1
+            if 0 <= num < len(data['cards']):
+                deleted_card = data['cards'].pop(num)
+                save_user_data(user_id, data)
+                deleted = True
+                await update.message.reply_text(
+                    f"🗑 Видалено: {deleted_card['ukrainian']} → {deleted_card['english']}",
+                    reply_markup=get_main_menu()
+                )
+        except ValueError:
+            # Це не номер, шукаємо по назві
+            for i, card in enumerate(data['cards']):
+                if text.lower() in card['ukrainian'].lower() or text.lower() in card['english'].lower():
+                    deleted_card = data['cards'].pop(i)
+                    save_user_data(user_id, data)
+                    deleted = True
+                    await update.message.reply_text(
+                        f"🗑 Видалено: {deleted_card['ukrainian']} → {deleted_card['english']}",
+                        reply_markup=get_main_menu()
+                    )
+                    break
+        
+        if not deleted:
+            await update.message.reply_text("❌ Слово не знайдено", reply_markup=get_main_menu())
+        
+        context.user_data['dict_delete_mode'] = False
+        return
+    # Скремблер
+    elif context.user_data.get('scramble_word'):
+        data = init_user(user_id)
+        if text.lower() == context.user_data['scramble_word']:
+            data['game_stats']['total'] += 1
+            data['game_stats']['correct'] += 1
+            save_user_data(user_id, data)
+            context.user_data.clear()
+            
+            keyboard = [[InlineKeyboardButton("🔄 Грати ще", callback_data="game_scramble")]]
+            await update.message.reply_text("🎉 Правильно!", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text("❌ Спробуйте ще раз")
+    # Переклад
+    elif context.user_data.get('waiting_for_translation'):
+        context.user_data['waiting_for_translation'] = False
+        await process_translation(update, text, context, message=update.message)
+    else:
+        await process_translation(update, text, context, message=update.message)
 
-async def process_typing_answer(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    """Обробка відповіді в режимі написання"""
-    # TODO: реалізувати
-    pass
-
-# ==================== CALLBACK ОБРОБНИКИ ====================
-
+# Обробка кнопок
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    user_id = str(query.from_user.id)
+    user_id = str(update.effective_user.id)
     data = init_user(user_id)
     
-    # Швидке додавання
-    if query.data.startswith("quick_add:"):
-        parts = query.data.split(":", 2)
-        ukrainian, english = parts[1], parts[2]
+    # Додати ще слово
+    if query.data == "add_another_word":
+        context.user_data['adding_custom_word'] = True
+        context.user_data['custom_word_step'] = 'ukrainian'
         
-        deck = data['active_deck']
-        card = create_card(ukrainian, english, deck)
-        data['decks'][deck]['cards'].append(card)
+        await query.edit_message_text(
+            "➕ **Додати своє слово**\n\n"
+            "Крок 1/2: Напишіть слово українською:\n\n"
+            "💡 Наприклад: собака"
+        )
+        return
+    
+    # Вибір кількості слів для повторення
+    elif query.data == "review_scheduled":
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        if not due:
+            await query.edit_message_text("🎉 Слів за розкладом немає!\n\nВиберіть 'Всі слова' для повторення.")
+            return
+        
+        context.user_data['review_type'] = 'scheduled'
+        await show_review_mode_selection(query, len(due), 'scheduled', context)
+    
+    elif query.data == "review_all":
+        context.user_data['review_type'] = 'all'
+        await show_review_mode_selection(query, len(data['cards']), 'all', context)
+    
+    elif query.data == "back_to_review_start":
+        # Повертаємось до вибору кількості слів
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        keyboard = [
+            [InlineKeyboardButton(f"📅 По розкладу ({len(due)} слів)", callback_data="review_scheduled")],
+            [InlineKeyboardButton(f"📚 Всі слова ({len(data['cards'])} слів)", callback_data="review_all")]
+        ]
+        
+        if len(due) == 0:
+            message_text = "🎉 **Повторення**\n\nСлів за розкладом: 0\n\nВиберіть режим:"
+        else:
+            message_text = f"📚 **Повторення**\n\nСлів за розкладом: {len(due)}\nВсього слів: {len(data['cards'])}\n\nВиберіть режим:"
+        
+        await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # Вибір режиму повторення
+    elif query.data.startswith("mode_"):
+        parts = query.data.split("_")
+        review_type = parts[1]  # scheduled or all
+        mode = parts[2]  # classic, quiz, fast, typing, reverse
+        
+        if mode == "classic":
+            await start_classic_review(update, context, user_id, review_type)
+        elif mode == "quiz":
+            await start_quiz_review(update, context, user_id, review_type)
+        elif mode == "fast":
+            await start_fast_review(update, context, user_id, review_type)
+        elif mode == "typing":
+            await start_typing_review(update, context, user_id, review_type)
+        elif mode == "reverse":
+            await start_reverse_review(update, context, user_id, review_type)
+    
+    # Швидкий режим - наступна картка
+    elif query.data == "fast_next":
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Оновлюємо інтервал (2 дні для швидкого режиму)
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=2)).isoformat()
+        data['stats']['total_reviews'] += 1
         save_user_data(user_id, data)
         
-        await query.edit_message_text(f"✅ Додано: {ukrainian} → {english}")
-    
-    # Додати ще слово
-    elif query.data == "add_another":
-        context.user_data['adding_word'] = True
-        context.user_data['word_step'] = 'ukrainian'
-        await query.edit_message_text("➕ Напишіть слово українською:")
-    
-    # Почати вивчати
-    elif query.data == "start_learning":
-        await query.message.reply_text("🎯 Розпочинаємо навчання...")
-        # Перенаправляємо на функцію навчання
-        update_copy = update
-        update_copy.message = query.message
-        await start_learning(update_copy, context)
-    
-    # Режими навчання
-    elif query.data == "learn_classic":
-        context.user_data['learning_mode'] = 'classic'
-        await show_learning_card(query, context, 'classic')
-    
-    elif query.data == "learn_quiz":
-        context.user_data['learning_mode'] = 'quiz'
-        await show_learning_card(query, context, 'quiz')
-    
-    # Показати відповідь (класичний режим)
-    elif query.data == "show_card_answer":
-        session = context.user_data.get('learning_session')
-        if session:
-            card_idx = session['cards'][session['current']]
-            deck = session['deck']
-            card = data['decks'][deck]['cards'][card_idx]
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            card = data['cards'][next_idx]
             
             keyboard = [
-                [InlineKeyboardButton("😊 Легко", callback_data="rate_5")],
-                [InlineKeyboardButton("👍 Добре", callback_data="rate_3")],
-                [InlineKeyboardButton("🤔 Важко", callback_data="rate_1")],
-                [InlineKeyboardButton("❌ Знову", callback_data="rate_0")]
+                [InlineKeyboardButton("➡️ Далі", callback_data="fast_next")],
+                [InlineKeyboardButton("❌ Завершити", callback_data="fast_end")]
             ]
             
             await query.edit_message_text(
-                f"🇺🇦 {card['ukrainian']}\n"
-                f"🇬🇧 **{card['english']}**\n\n"
-                f"Як добре ви знаєте це слово?",
+                f"⚡ **Швидкий режим** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{card['ukrainian']}**\n"
+                f"🇬🇧 **{card['english']}**",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            context.user_data.clear()
+            await query.edit_message_text(
+                "✅ **Швидкий перегляд завершено!**\n\n"
+                f"Переглянуто слів: {len(due)}\n\n"
+                "Всі слова з'являться через 2 дні"
+            )
+    
+    elif query.data == "fast_end":
+        context.user_data.clear()
+        await query.edit_message_text("✅ Швидкий режим завершено!")
+    
+    # Режим написання - пропустити
+    elif query.data == "typing_skip":
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Пропущене слово - інтервал 1 день
+        idx = context.user_data.get('current_card_index')
+        card = data['cards'][idx]
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=1)).isoformat()
+        save_user_data(user_id, data)
+        
+        await query.answer(f"Пропущено: {card['english']}", show_alert=False)
+        
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            next_card = data['cards'][next_idx]
+            
+            keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+            
+            await query.edit_message_text(
+                f"✍️ **Режим написання** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{next_card['ukrainian']}**\n\n"
+                f"💡 Напишіть переклад англійською:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Завершення
+            correct_count = context.user_data.get('typing_correct_count', 0)
+            total = len(due)
+            context.user_data.clear()
+            
+            await query.edit_message_text(
+                f"✅ **Режим написання завершено!**\n\n"
+                f"Правильних: {correct_count}/{total}"
+            )
+    
+    # Реверс режим - відповідь
+    elif query.data.startswith("reverse_answer:"):
+        answer = query.data.split(":", 1)[1]
+        correct = context.user_data.get('reverse_correct_answer')
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        is_correct = (answer == correct)
+        
+        if is_correct:
+            context.user_data['reverse_correct_count'] = context.user_data.get('reverse_correct_count', 0) + 1
+            result_emoji = "✅"
+            interval_days = 2
+        else:
+            result_emoji = "❌"
+            interval_days = 1
+        
+        # Оновлюємо картку
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=interval_days)).isoformat()
+        data['stats']['total_reviews'] += 1
+        if is_correct:
+            data['stats']['correct'] += 1
+        save_user_data(user_id, data)
+        
+        # Наступна картка або завершення
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            
+            await query.answer(f"{result_emoji}", show_alert=False)
+            await show_reverse_card(query, context, data, due, current_pos + 1)
+        else:
+            # Фінал
+            correct_count = context.user_data.get('reverse_correct_count', 0)
+            total_count = len(due)
+            percentage = int((correct_count / total_count) * 100) if total_count > 0 else 0
+            context.user_data.clear()
+            
+            await query.edit_message_text(
+                f"✅ **Реверс режим завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total_count} ({percentage}%)\n\n"
+                f"💡 Слова з'являться через 1-2 дні"
+            )
+    
+    elif query.data == "back_to_review":
+        # Повернутися до вибору режиму
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        keyboard = [
+            [InlineKeyboardButton("📖 Класичний режим", callback_data="review_mode_classic")],
+            [InlineKeyboardButton("🎯 Вгадай переклад (1 з 4)", callback_data="review_mode_quiz")]
+        ]
+        
+        await query.edit_message_text(
+            f"📚 **Режим повторення**\n\n"
+            f"Слів для повторення: {len(due)}\n\n"
+            f"Виберіть режим:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    # Відповідь у режимі вікторини
+    elif query.data.startswith("quiz_answer:"):
+        answer = query.data.split(":", 1)[1]
+        correct = context.user_data.get('quiz_correct_answer')
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Перевіряємо відповідь
+        is_correct = (answer == correct)
+        
+        if is_correct:
+            context.user_data['quiz_correct_count'] = context.user_data.get('quiz_correct_count', 0) + 1
+            result_emoji = "✅"
+            result_text = "Правильно!"
+            # Для правильної відповіді в режимі вікторини - 2 дні
+            interval_days = 2
+        else:
+            result_emoji = "❌"
+            result_text = f"Неправильно! Правильна відповідь: **{correct}**"
+            # Для неправильної відповіді - 1 день
+            interval_days = 1
+        
+        # Оновлюємо картку
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=interval_days)).isoformat()
+        data['stats']['total_reviews'] += 1
+        
+        if is_correct:
+            data['stats']['correct'] += 1
+        
+        save_user_data(user_id, data)
+        
+        # Перевіряємо чи є ще картки
+        if current_pos + 1 < len(due):
+            # Показуємо результат і переходимо до наступної картки
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            
+            # Короткий результат
+            await query.answer(f"{result_emoji} {result_text}", show_alert=False)
+            
+            # Показуємо наступну картку
+            await show_quiz_card(query, context, data, due, current_pos + 1)
+        else:
+            # Фінальний результат
+            correct_count = context.user_data.get('quiz_correct_count', 0)
+            total_count = len(due)
+            percentage = int((correct_count / total_count) * 100) if total_count > 0 else 0
+            
+            # Вибираємо емодзі в залежності від результату
+            if percentage >= 90:
+                result_emoji = "🏆"
+                grade = "Відмінно!"
+            elif percentage >= 70:
+                result_emoji = "🌟"
+                grade = "Добре!"
+            elif percentage >= 50:
+                result_emoji = "👍"
+                grade = "Непогано!"
+            else:
+                result_emoji = "💪"
+                grade = "Продовжуйте практикувати!"
+            
+            context.user_data.clear()
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторити ще раз", callback_data="review_mode_quiz")],
+                [InlineKeyboardButton("◀️ Головне меню", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                f"{result_emoji} **Повторення завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total_count} ({percentage}%)\n"
+                f"🎯 {grade}\n\n"
+                f"✅ Правильних: {correct_count}\n"
+                f"❌ Помилок: {total_count - correct_count}\n\n"
+                f"💡 Правильні слова з'являться через 2 дні\n"
+                f"💡 Помилкові слова з'являться завтра",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
-    # Оцінка картки
-    elif query.data.startswith("rate_"):
-        quality = int(query.data.split("_")[1])
-        session = context.user_data.get('learning_session')
-        
-        if session:
-            card_idx = session['cards'][session['current']]
-            deck = session['deck']
-            
-            # Оновлюємо картку за SM-2
-            data['decks'][deck]['cards'][card_idx] = calculate_next_interval(
-                data['decks'][deck]['cards'][card_idx],
-                quality
-            )
-            
-            # Оновлюємо статистику
-            data['stats']['total_reviews'] += 1
-            if quality >= 3:
-                data['stats']['correct_reviews'] += 1
-                session['correct'] = session.get('correct', 0) + 1
-            
-            save_user_data(user_id, data)
-            
-            # Наступна картка
-            session['current'] += 1
-            context.user_data['learning_session'] = session
-            
-            await show_learning_card(query, context, 'classic')
+    elif query.data == "back_to_main":
+        await query.edit_message_text("Головне меню 👇")
+        return
     
-    # Відповідь у вікторині
-    elif query.data.startswith("quiz_ans_"):
-        answer = query.data.replace("quiz_ans_", "")
-        correct = context.user_data.get('quiz_correct')
-        session = context.user_data.get('learning_session')
+    # Ігри
+    if query.data == "game_guess":
+        await game_guess_command(update, context, True)
+    elif query.data == "game_scramble":
+        await game_scramble_command(update, context, True)
+    elif query.data.startswith("game_answer:"):
+        answer = query.data.split(":", 1)[1]
+        correct = context.user_data.get('game_correct')
         
-        if session:
-            card_idx = session['cards'][session['current']]
-            deck = session['deck']
-            
-            is_correct = (answer == correct)
-            quality = 4 if is_correct else 1
-            
-            # Оновлюємо картку
-            data['decks'][deck]['cards'][card_idx] = calculate_next_interval(
-                data['decks'][deck]['cards'][card_idx],
-                quality
-            )
-            
-            # Статистика
-            data['stats']['total_reviews'] += 1
-            if is_correct:
-                data['stats']['correct_reviews'] += 1
-                session['correct'] = session.get('correct', 0) + 1
-            
-            save_user_data(user_id, data)
-            
-            # Наступна
-            session['current'] += 1
-            context.user_data['learning_session'] = session
-            
-            await query.answer("✅ Правильно!" if is_correct else f"❌ Правильно: {correct}")
-            await show_learning_card(query, context, 'quiz')
+        data['game_stats']['total'] += 1
+        if answer == correct:
+            data['game_stats']['correct'] += 1
+            await query.edit_message_text("🎉 Правильно!")
+        else:
+            await query.edit_message_text(f"❌ Правильно: {correct}")
+        
+        save_user_data(user_id, data)
     
-    # Статистика
-    elif query.data == "show_stats":
-        update_copy = update
-        update_copy.message = query.message
-        await show_statistics(update_copy, context)
+    # Діалоги
+    elif query.data.startswith("dialog_"):
+        if query.data == "dialog_end":
+            context.user_data['dialog_active'] = False
+            context.user_data['dialog_history'] = []
+            await query.edit_message_text("✅ Діалог завершено!\n\nВи чудово попрактикували англійську! 🎉")
+        else:
+            scenario = query.data.replace("dialog_", "")
+            await start_dialog(query, scenario, context)
+    
+    # Курси
+    elif query.data == "course_beginner":
+        await query.edit_message_text(
+            "🌱 **Початковий курс**\n\n"
+            "Цей курс допоможе вам вивчити базову англійську.\n\n"
+            "📚 10 уроків\n⏱ 3 місяці\n📝 225 слів\n\n"
+            "Почніть з основ і поступово прогресуйте!"
+        )
+    elif query.data == "course_info":
+        await query.edit_message_text(
+            "📚 **Інформація про курси**\n\n"
+            "Наші курси структуровані для послідовного навчання.\n\n"
+            "🌱 Початковий (A1→A2)\n"
+            "📘 Середній (B1→B2)\n"
+            "🎓 Просунутий (C1)\n\n"
+            "Кожен курс містить тексти, слова та вправи."
+        )
+    
+    # Словник
+    elif query.data == "dict_my":
+        if data['cards']:
+            msg = "📕 **Ваші слова:**\n\n"
+            for c in data['cards'][:10]:
+                msg += f"🇺🇦 {c['ukrainian']} → 🇬🇧 {c['english']}\n"
+            
+            if len(data['cards']) > 10:
+                msg += f"\n...та ще {len(data['cards']) - 10} слів"
+            
+            await query.edit_message_text(msg)
+        else:
+            await query.edit_message_text("Словник порожній")
+    
+    elif query.data == "dict_delete":
+        if data['cards']:
+            msg = "🗑 **Видалити слово**\n\nВаші слова:\n\n"
+            for i, c in enumerate(data['cards'][:15], 1):
+                msg += f"{i}. {c['english']} - {c['ukrainian']}\n"
+            
+            msg += "\n💡 Напишіть номер або назву слова для видалення"
+            context.user_data['dict_delete_mode'] = True
+            await query.edit_message_text(msg)
+        else:
+            await query.edit_message_text("Словник порожній")
+    
+    elif query.data == "dict_thematic":
+        keyboard = [[InlineKeyboardButton(t, callback_data=f"vocab_{t}")] for t in THEMATIC_VOCABULARIES.keys()]
+        await query.edit_message_text("Виберіть тему:", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif query.data.startswith("vocab_"):
+        theme = query.data.replace("vocab_", "")
+        words = THEMATIC_VOCABULARIES.get(theme, {})
+        
+        msg = f"**{theme}**\n\nСлів: {len(words)}\n\n"
+        for i, (en, ua) in enumerate(list(words.items())[:5], 1):
+            msg += f"{i}. {en} - {ua}\n"
+        
+        keyboard = [[InlineKeyboardButton("➕ Додати всі", callback_data=f"vocab_add_{theme}")]]
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif query.data.startswith("vocab_add_"):
+        theme = query.data.replace("vocab_add_", "")
+        words = THEMATIC_VOCABULARIES.get(theme, {})
+        
+        added = 0
+        for en, ua in words.items():
+            if not any(c['english'].lower() == en.lower() for c in data['cards']):
+                data['cards'].append({
+                    'ukrainian': ua,
+                    'english': en,
+                    'added_date': datetime.now().isoformat(),
+                    'next_review': datetime.now().isoformat(),
+                    'interval': 1
+                })
+                added += 1
+        
+        save_user_data(user_id, data)
+        await query.edit_message_text(f"✅ Додано {added} слів!")
+    
+    # Додати слово
+    elif query.data.startswith("add_to_cards:"):
+        parts = query.data.split(":", 2)
+        word1, word2 = parts[1], parts[2]
+        
+        is_cyr = any('\u0400' <= c <= '\u04FF' for c in word1)
+        ua, en = (word1, word2) if is_cyr else (word2, word1)
+        
+        if not any(c['english'].lower() == en.lower() for c in data['cards']):
+            data['cards'].append({
+                'ukrainian': ua,
+                'english': en,
+                'added_date': datetime.now().isoformat(),
+                'next_review': datetime.now().isoformat(),
+                'interval': 1
+            })
+            save_user_data(user_id, data)
+            await query.edit_message_text(f"✅ Додано: {ua} → {en}")
+        else:
+            await query.edit_message_text("Вже є в словнику!")
+    
+    # Повторення
+    elif query.data == "show_answer":
+        idx = context.user_data.get('current_card_index')
+        card = data['cards'][idx]
+        
+        keyboard = [
+            [InlineKeyboardButton("😊 Легко (7д)", callback_data="diff_easy")],
+            [InlineKeyboardButton("🤔 Середньо (3д)", callback_data="diff_medium")],
+            [InlineKeyboardButton("😓 Важко (1д)", callback_data="diff_hard")]
+        ]
+        
+        await query.edit_message_text(
+            f"🇺🇦 {card['ukrainian']}\n\n🇬🇧 {card['english']}\n\nНаскільки добре?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif query.data.startswith("diff_"):
+        diff = query.data.split("_")[1]
+        intervals = {'easy': 7, 'medium': 3, 'hard': 1}
+        
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=intervals[diff])).isoformat()
+        data['stats']['total_reviews'] += 1
+        
+        if diff in ['easy', 'medium']:
+            data['stats']['correct'] += 1
+        
+        save_user_data(user_id, data)
+        
+        due = context.user_data['due_cards']
+        pos = due.index(idx)
+        
+        if pos + 1 < len(due):
+            next_idx = due[pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            card = data['cards'][next_idx]
+            
+            await query.edit_message_text(
+                f"📚 Картка {pos + 2}/{len(due)}\n\n🇺🇦 **{card['ukrainian']}**",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Показати", callback_data="show_answer")]])
+            )
+        else:
+            context.user_data.clear()
+            
+            keyboard = [
+                [InlineKeyboardButton("🔄 Повторити ще раз", callback_data="review_mode_classic")],
+                [InlineKeyboardButton("◀️ Головне меню", callback_data="back_to_main")]
+            ]
+            
+            await query.edit_message_text(
+                "🎉 **Все повторено!**\n\nВи чудово попрацювали!",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    
+    # Налаштування
+    elif query.data == "settings_level":
+        keyboard = [
+            [InlineKeyboardButton("A1", callback_data="level_A1")],
+            [InlineKeyboardButton("A2", callback_data="level_A2")],
+            [InlineKeyboardButton("B1", callback_data="level_B1")],
+            [InlineKeyboardButton("B2", callback_data="level_B2")],
+            [InlineKeyboardButton("C1", callback_data="level_C1")]
+        ]
+        await query.edit_message_text("Виберіть рівень:", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif query.data.startswith("level_"):
+        level = query.data.split("_")[1]
+        data['level'] = level
+        data['read_texts'] = []
+        save_user_data(user_id, data)
+        await query.edit_message_text(f"✅ Рівень: {level}")
+    
+    elif query.data == "settings_language":
+        keyboard = [
+            [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")],
+            [InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")],
+            [InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr")]
+        ]
+        await query.edit_message_text("Мова:", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    elif query.data.startswith("lang_"):
+        lang = query.data.split("_")[1]
+        data['target_language'] = lang
+        save_user_data(user_id, data)
+        await query.edit_message_text(f"✅ Мова встановлено")
+    
+    elif query.data == "settings_reminders":
+        keyboard = [
+            [InlineKeyboardButton("09:00", callback_data="rem_09:00"), InlineKeyboardButton("12:00", callback_data="rem_12:00")],
+            [InlineKeyboardButton("18:00", callback_data="rem_18:00"), InlineKeyboardButton("20:00", callback_data="rem_20:00")],
+            [InlineKeyboardButton("❌ Вимкнути", callback_data="rem_off")]
+        ]
+        
+        status = "✅ увімкнені" if data['reminders']['enabled'] else "❌ вимкнені"
+        await query.edit_message_text(
+            f"⏰ Нагадування {status}\n\nЧас: {data['reminders']['time']}\n\nВиберіть час:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif query.data.startswith("rem_"):
+        if query.data == "rem_off":
+            data['reminders']['enabled'] = False
+            save_user_data(user_id, data)
+            await query.edit_message_text("❌ Нагадування вимкнено")
+        else:
+            time = query.data.replace("rem_", "")
+            data['reminders']['time'] = time
+            data['reminders']['enabled'] = True
+            save_user_data(user_id, data)
+            await query.edit_message_text(f"✅ Нагадування о {time}")
 
-# ==================== ГОЛОВНА ФУНКЦІЯ ====================
+# Нагадування
+async def send_reminders(application: Application):
+    """Відправляє нагадування користувачам"""
+    while True:
+        try:
+            now = datetime.now()
+            current_time = now.strftime("%H:%M")
+            
+            all_users = get_all_users()
+            
+            for user_id, data in all_users.items():
+                reminders = data.get('reminders', {})
+                
+                if reminders.get('enabled') and reminders.get('time') == current_time:
+                    try:
+                        cards_count = len(data.get('cards', []))
+                        
+                        messages = [
+                            f"⏰ Час практикувати!\n\nУ вас {cards_count} слів для повторення.",
+                            f"⏰ Не забудьте попрактикувати!\n\n📚 Повторіть кілька слів сьогодні.",
+                            f"⏰ Час вивчати!\n\n🎮 Може зіграємо в Скремблер?",
+                            f"⏰ Вітаю!\n\n📖 Може прочитаєте новий текст сьогодні?",
+                        ]
+                        
+                        message = random.choice(messages)
+                        
+                        await application.bot.send_message(
+                            chat_id=user_id,
+                            text=message,
+                            reply_markup=get_main_menu()
+                        )
+                        
+                        logger.info(f"Reminder sent to user {user_id}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error sending reminder to {user_id}: {e}")
+            
+            await asyncio.sleep(60)
+        
+        except Exception as e:
+            logger.error(f"Error in send_reminders: {e}")
+            await asyncio.sleep(60)
 
 def main():
+    # Ініціалізація БД
     init_database()
     
     TOKEN = os.getenv("TOKEN")
@@ -1064,14 +1869,25 @@ def main():
     # Команди
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    
-    # Callback
+    application.add_handler(CommandHandler("text", text_command))
+    application.add_handler(CommandHandler("review", review))
+    application.add_handler(CommandHandler("translate", translate_command))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("settings", settings_command))
+    application.add_handler(CommandHandler("games", games_menu))
+    application.add_handler(CommandHandler("dialog", dialog_menu))
+    application.add_handler(CommandHandler("courses", courses_menu))
+    application.add_handler(CommandHandler("dictionary", dictionary_command))
     application.add_handler(CallbackQueryHandler(button_callback))
-    
-    # Повідомлення
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🤖 Reword Bot запущено!")
+    # Запуск нагадувань після старту бота
+    async def post_init(app: Application) -> None:
+        app.create_task(send_reminders(app))
+    
+    application.post_init = post_init
+    
+    print("🤖 Бот з PostgreSQL запущено!")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
