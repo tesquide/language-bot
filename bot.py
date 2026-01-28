@@ -648,16 +648,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **🔄 Перекласти** - Перекласти слово з прикладами
 **➕ Додати слово** - Додати своє слово зі своїм перекладом
 **📕 Словник** - Ваші слова + тематичні набори
-**📚 Повторити** - Інтервальне повторення
+**📚 Повторити** - 5 режимів повторення:
+   • 📖 Класичний - показ з оцінкою складності
+   • 🎯 Вікторина - вибір 1 з 4 варіантів
+   • ⚡ Швидкий - просто перегляд слів
+   • ✍️ Написання - введення перекладу
+   • 🔄 Реверс - переклад UA→EN
 **🎮 Ігри** - Скремблер та вгадування
 **💬 Діалог AI** - Практика розмови англійською
 **🎓 Курси** - Структуровані програми
 **📊 Статистика** - Ваш прогрес
 **⚙️ Налаштування** - Рівень, мова, нагадування
 
-💡 Просто напишіть слово для перекладу!
+💡 Ви можете повторювати слова коли завгодно!
+💡 Виберіть режим що вам подобається!
 
-🆕 **Нова фіча:** Додайте свої власні слова до словника!
+🆕 **Нові режими повторення вже доступні!**
     """, reply_markup=get_main_menu())
 
 # Налаштування
@@ -863,33 +869,64 @@ async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Немає слів!", reply_markup=get_main_menu())
         return
     
-    # Вибір режиму повторення
-    keyboard = [
-        [InlineKeyboardButton("📖 Класичний режим", callback_data="review_mode_classic")],
-        [InlineKeyboardButton("🎯 Вгадай переклад (1 з 4)", callback_data="review_mode_quiz")]
-    ]
-    
     now = datetime.now()
     due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
     
-    if not due:
-        await update.message.reply_text("🎉 Все повторено!", reply_markup=get_main_menu())
-        return
+    # Вибір: повторити по розкладу або всі слова
+    keyboard = [
+        [InlineKeyboardButton(f"📅 По розкладу ({len(due)} слів)", callback_data="review_scheduled")],
+        [InlineKeyboardButton(f"📚 Всі слова ({len(data['cards'])} слів)", callback_data="review_all")]
+    ]
+    
+    if len(due) == 0:
+        message_text = "🎉 **Повторення**\n\nСлів за розкладом: 0\n\nВиберіть режим:"
+    else:
+        message_text = f"📚 **Повторення**\n\nСлів за розкладом: {len(due)}\nВсього слів: {len(data['cards'])}\n\nВиберіть режим:"
     
     await update.message.reply_text(
-        f"📚 **Режим повторення**\n\n"
-        f"Слів для повторення: {len(due)}\n\n"
-        f"Виберіть режим:",
+        message_text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Вибір режиму після вибору кількості слів
+async def show_review_mode_selection(query, due_count, review_type, context):
+    """Показує вибір режиму повторення"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 Класичний", callback_data=f"mode_{review_type}_classic")],
+        [InlineKeyboardButton("🎯 Вікторина (1 з 4)", callback_data=f"mode_{review_type}_quiz")],
+        [InlineKeyboardButton("⚡ Швидкий режим", callback_data=f"mode_{review_type}_fast")],
+        [InlineKeyboardButton("✍️ Написання", callback_data=f"mode_{review_type}_typing")],
+        [InlineKeyboardButton("🔄 Реверс (UA→EN)", callback_data=f"mode_{review_type}_reverse")],
+        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_review_start")]
+    ]
+    
+    await query.edit_message_text(
+        f"🎮 **Виберіть режим повторення**\n\n"
+        f"Слів для повторення: {due_count}\n\n"
+        f"**Режими:**\n"
+        f"📖 **Класичний** - показ картки з оцінкою\n"
+        f"🎯 **Вікторина** - вибір 1 з 4 варіантів\n"
+        f"⚡ **Швидкий** - просто перегляд слів\n"
+        f"✍️ **Написання** - введіть переклад\n"
+        f"🔄 **Реверс** - переклад з української на англійську",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 # Класичний режим повторення
-async def start_classic_review(update, context, user_id):
+async def start_classic_review(update, context, user_id, review_type='scheduled'):
     """Запускає класичне повторення з показом картки"""
     data = init_user(user_id)
     
     now = datetime.now()
-    due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
     
     context.user_data['reviewing'] = True
     context.user_data['review_mode'] = 'classic'
@@ -904,18 +941,25 @@ async def start_classic_review(update, context, user_id):
     )
 
 # Режим вікторини (1 з 4)
-async def start_quiz_review(update, context, user_id):
+async def start_quiz_review(update, context, user_id, review_type='scheduled'):
     """Запускає повторення в режимі вікторини з 4 варіантами"""
     data = init_user(user_id)
     
     now = datetime.now()
-    due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
     
     if len(data['cards']) < 4:
         await update.callback_query.edit_message_text(
             "❌ Для режиму вікторини потрібно мінімум 4 слова в словнику!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_review")]])
         )
+        return
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
         return
     
     context.user_data['reviewing'] = True
@@ -925,6 +969,136 @@ async def start_quiz_review(update, context, user_id):
     context.user_data['quiz_correct_count'] = 0
     
     await show_quiz_card(update.callback_query, context, data, due, 0)
+
+# Швидкий режим - просто перегляд
+async def start_fast_review(update, context, user_id, review_type='scheduled'):
+    """Швидкий режим - автоматичний показ слів"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'fast'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    
+    card = data['cards'][due[0]]
+    
+    keyboard = [
+        [InlineKeyboardButton("➡️ Далі", callback_data="fast_next")],
+        [InlineKeyboardButton("❌ Завершити", callback_data="fast_end")]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        f"⚡ **Швидкий режим** - {1}/{len(due)}\n\n"
+        f"🇺🇦 **{card['ukrainian']}**\n"
+        f"🇬🇧 **{card['english']}**",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Режим написання
+async def start_typing_review(update, context, user_id, review_type='scheduled'):
+    """Режим з введенням відповіді"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'typing'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['typing_correct_count'] = 0
+    
+    card = data['cards'][due[0]]
+    
+    keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+    
+    await update.callback_query.edit_message_text(
+        f"✍️ **Режим написання** - {1}/{len(due)}\n\n"
+        f"🇺🇦 **{card['ukrainian']}**\n\n"
+        f"💡 Напишіть переклад англійською:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# Реверс режим (UA → EN)
+async def start_reverse_review(update, context, user_id, review_type='scheduled'):
+    """Реверс режим - з української на англійську"""
+    data = init_user(user_id)
+    
+    now = datetime.now()
+    if review_type == 'scheduled':
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+    else:  # all
+        due = list(range(len(data['cards'])))
+    
+    if len(data['cards']) < 4:
+        await update.callback_query.edit_message_text(
+            "❌ Для цього режиму потрібно мінімум 4 слова!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="back_to_review")]])
+        )
+        return
+    
+    if not due:
+        await update.callback_query.edit_message_text("🎉 Немає слів для повторення!")
+        return
+    
+    context.user_data['reviewing'] = True
+    context.user_data['review_mode'] = 'reverse'
+    context.user_data['current_card_index'] = due[0]
+    context.user_data['due_cards'] = due
+    context.user_data['reverse_correct_count'] = 0
+    
+    await show_reverse_card(update.callback_query, context, data, due, 0)
+
+async def show_reverse_card(query, context, data, due, position):
+    """Показує картку в реверс режимі (Ukrainian → English)"""
+    idx = due[position]
+    correct_card = data['cards'][idx]
+    
+    # Вибираємо 3 неправильні відповіді
+    wrong_cards = [c for i, c in enumerate(data['cards']) if i != idx]
+    if len(wrong_cards) >= 3:
+        wrong_options = random.sample(wrong_cards, 3)
+    else:
+        wrong_options = wrong_cards
+    
+    # Формуємо всі варіанти (Ukrainian words)
+    all_options = [correct_card] + wrong_options
+    random.shuffle(all_options)
+    
+    # Зберігаємо правильну відповідь
+    context.user_data['reverse_correct_answer'] = correct_card['ukrainian']
+    
+    # Створюємо кнопки з українськими словами
+    keyboard = []
+    for opt in all_options:
+        keyboard.append([InlineKeyboardButton(
+            opt['ukrainian'], 
+            callback_data=f"reverse_answer:{opt['ukrainian']}"
+        )])
+    
+    await query.edit_message_text(
+        f"🔄 **Реверс режим** - Картка {position + 1}/{len(due)}\n\n"
+        f"🇬🇧 **{correct_card['english']}**\n\n"
+        f"Виберіть правильний переклад українською:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def show_quiz_card(query, context, data, due, position):
     """Показує картку в режимі вікторини"""
@@ -992,6 +1166,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Додавання свого слова
     elif context.user_data.get('adding_custom_word'):
         await process_custom_word(update, context, text)
+        return
+    # Режим написання - перевірка введеної відповіді
+    elif context.user_data.get('review_mode') == 'typing':
+        user_id = str(update.effective_user.id)
+        data = init_user(user_id)
+        
+        idx = context.user_data.get('current_card_index')
+        card = data['cards'][idx]
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(idx)
+        
+        # Перевіряємо відповідь (з урахуванням регістру)
+        user_answer = text.strip().lower()
+        correct_answer = card['english'].lower()
+        
+        if user_answer == correct_answer:
+            # Правильно
+            context.user_data['typing_correct_count'] = context.user_data.get('typing_correct_count', 0) + 1
+            data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=2)).isoformat()
+            data['stats']['total_reviews'] += 1
+            data['stats']['correct'] += 1
+            save_user_data(user_id, data)
+            
+            await update.message.reply_text("✅ Правильно!")
+        else:
+            # Неправильно
+            data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=1)).isoformat()
+            data['stats']['total_reviews'] += 1
+            save_user_data(user_id, data)
+            
+            await update.message.reply_text(f"❌ Неправильно!\nПравильно: **{card['english']}**")
+        
+        # Наступна картка або завершення
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            next_card = data['cards'][next_idx]
+            
+            keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+            
+            await update.message.reply_text(
+                f"✍️ **Режим написання** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{next_card['ukrainian']}**\n\n"
+                f"💡 Напишіть переклад англійською:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Завершення
+            correct_count = context.user_data.get('typing_correct_count', 0)
+            total = len(due)
+            percentage = int((correct_count / total) * 100) if total > 0 else 0
+            
+            context.user_data.clear()
+            
+            await update.message.reply_text(
+                f"✅ **Режим написання завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total} ({percentage}%)\n\n"
+                f"💡 Слова з'являться через 1-2 дні",
+                reply_markup=get_main_menu()
+            )
         return
     # Активний діалог з AI
     elif context.user_data.get('dialog_active'):
@@ -1071,12 +1305,176 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Вибір режиму повторення
-    elif query.data == "review_mode_classic":
-        await start_classic_review(update, context, user_id)
+    # Вибір кількості слів для повторення
+    elif query.data == "review_scheduled":
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        if not due:
+            await query.edit_message_text("🎉 Слів за розкладом немає!\n\nВиберіть 'Всі слова' для повторення.")
+            return
+        
+        context.user_data['review_type'] = 'scheduled'
+        await show_review_mode_selection(query, len(due), 'scheduled', context)
     
-    elif query.data == "review_mode_quiz":
-        await start_quiz_review(update, context, user_id)
+    elif query.data == "review_all":
+        context.user_data['review_type'] = 'all'
+        await show_review_mode_selection(query, len(data['cards']), 'all', context)
+    
+    elif query.data == "back_to_review_start":
+        # Повертаємось до вибору кількості слів
+        now = datetime.now()
+        due = [i for i, c in enumerate(data['cards']) if datetime.fromisoformat(c['next_review']) <= now]
+        
+        keyboard = [
+            [InlineKeyboardButton(f"📅 По розкладу ({len(due)} слів)", callback_data="review_scheduled")],
+            [InlineKeyboardButton(f"📚 Всі слова ({len(data['cards'])} слів)", callback_data="review_all")]
+        ]
+        
+        if len(due) == 0:
+            message_text = "🎉 **Повторення**\n\nСлів за розкладом: 0\n\nВиберіть режим:"
+        else:
+            message_text = f"📚 **Повторення**\n\nСлів за розкладом: {len(due)}\nВсього слів: {len(data['cards'])}\n\nВиберіть режим:"
+        
+        await query.edit_message_text(message_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # Вибір режиму повторення
+    elif query.data.startswith("mode_"):
+        parts = query.data.split("_")
+        review_type = parts[1]  # scheduled or all
+        mode = parts[2]  # classic, quiz, fast, typing, reverse
+        
+        if mode == "classic":
+            await start_classic_review(update, context, user_id, review_type)
+        elif mode == "quiz":
+            await start_quiz_review(update, context, user_id, review_type)
+        elif mode == "fast":
+            await start_fast_review(update, context, user_id, review_type)
+        elif mode == "typing":
+            await start_typing_review(update, context, user_id, review_type)
+        elif mode == "reverse":
+            await start_reverse_review(update, context, user_id, review_type)
+    
+    # Швидкий режим - наступна картка
+    elif query.data == "fast_next":
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Оновлюємо інтервал (2 дні для швидкого режиму)
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=2)).isoformat()
+        data['stats']['total_reviews'] += 1
+        save_user_data(user_id, data)
+        
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            card = data['cards'][next_idx]
+            
+            keyboard = [
+                [InlineKeyboardButton("➡️ Далі", callback_data="fast_next")],
+                [InlineKeyboardButton("❌ Завершити", callback_data="fast_end")]
+            ]
+            
+            await query.edit_message_text(
+                f"⚡ **Швидкий режим** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{card['ukrainian']}**\n"
+                f"🇬🇧 **{card['english']}**",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            context.user_data.clear()
+            await query.edit_message_text(
+                "✅ **Швидкий перегляд завершено!**\n\n"
+                f"Переглянуто слів: {len(due)}\n\n"
+                "Всі слова з'являться через 2 дні"
+            )
+    
+    elif query.data == "fast_end":
+        context.user_data.clear()
+        await query.edit_message_text("✅ Швидкий режим завершено!")
+    
+    # Режим написання - пропустити
+    elif query.data == "typing_skip":
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        # Пропущене слово - інтервал 1 день
+        idx = context.user_data.get('current_card_index')
+        card = data['cards'][idx]
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=1)).isoformat()
+        save_user_data(user_id, data)
+        
+        await query.answer(f"Пропущено: {card['english']}", show_alert=False)
+        
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            next_card = data['cards'][next_idx]
+            
+            keyboard = [[InlineKeyboardButton("Пропустити", callback_data="typing_skip")]]
+            
+            await query.edit_message_text(
+                f"✍️ **Режим написання** - {current_pos + 2}/{len(due)}\n\n"
+                f"🇺🇦 **{next_card['ukrainian']}**\n\n"
+                f"💡 Напишіть переклад англійською:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Завершення
+            correct_count = context.user_data.get('typing_correct_count', 0)
+            total = len(due)
+            context.user_data.clear()
+            
+            await query.edit_message_text(
+                f"✅ **Режим написання завершено!**\n\n"
+                f"Правильних: {correct_count}/{total}"
+            )
+    
+    # Реверс режим - відповідь
+    elif query.data.startswith("reverse_answer:"):
+        answer = query.data.split(":", 1)[1]
+        correct = context.user_data.get('reverse_correct_answer')
+        due = context.user_data.get('due_cards', [])
+        current_pos = due.index(context.user_data.get('current_card_index'))
+        
+        is_correct = (answer == correct)
+        
+        if is_correct:
+            context.user_data['reverse_correct_count'] = context.user_data.get('reverse_correct_count', 0) + 1
+            result_emoji = "✅"
+            interval_days = 2
+        else:
+            result_emoji = "❌"
+            interval_days = 1
+        
+        # Оновлюємо картку
+        idx = context.user_data.get('current_card_index')
+        data['cards'][idx]['next_review'] = (datetime.now() + timedelta(days=interval_days)).isoformat()
+        data['stats']['total_reviews'] += 1
+        if is_correct:
+            data['stats']['correct'] += 1
+        save_user_data(user_id, data)
+        
+        # Наступна картка або завершення
+        if current_pos + 1 < len(due):
+            next_idx = due[current_pos + 1]
+            context.user_data['current_card_index'] = next_idx
+            
+            await query.answer(f"{result_emoji}", show_alert=False)
+            await show_reverse_card(query, context, data, due, current_pos + 1)
+        else:
+            # Фінал
+            correct_count = context.user_data.get('reverse_correct_count', 0)
+            total_count = len(due)
+            percentage = int((correct_count / total_count) * 100) if total_count > 0 else 0
+            context.user_data.clear()
+            
+            await query.edit_message_text(
+                f"✅ **Реверс режим завершено!**\n\n"
+                f"📊 Результат: {correct_count}/{total_count} ({percentage}%)\n\n"
+                f"💡 Слова з'являться через 1-2 дні"
+            )
     
     elif query.data == "back_to_review":
         # Повернутися до вибору режиму
